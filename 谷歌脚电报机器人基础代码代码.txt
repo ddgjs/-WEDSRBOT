@@ -1,0 +1,240 @@
+const TOKEN = 'YOUR_BOT_TOKEN';
+const BASE_URL = `https://api.telegram.org/bot${TOKEN}/`;
+const SCRIPT_URL = 'YOUR_SCRIPT_DEPLOYMENT_URL';
+const BOT_ID = 'YOUR_BOT_ID';
+
+let FILTER_ENABLED = true; // 违规检测开关
+const USER_LAST_MESSAGE = {};
+const WARNINGS = {};
+const ADMIN_CACHE = {}; // 缓存管理员数据
+
+// **垃圾关键词**
+const SPAM_KEYWORDS = ['广告', '免费', '推广', '投资', '赚钱', '优惠'];
+const PORN_KEYWORDS = ['裸露', '成人', '色情', '性爱', '激情'];
+const LINK_PATTERN = /(https?:\/\/|www\.)\S+/i;
+
+// **自定义按钮回复**
+const CUSTOM_REPLIES = {
+  '按钮1': '你点击了按钮1，这是自定义回复！',
+  '按钮2': '按钮2已选择，这里是你的专属消息。',
+  '按钮3': '按钮3被点击，正在执行相关操作...',
+  '按钮4': '你选择了按钮4，请稍等片刻。',
+  '按钮5': '按钮5已触发，系统正在响应。',
+  '按钮6': '按钮6已激活，请查收信息。',
+  '返回主菜单': '你已返回主菜单，请选择新的选项。',
+  '选项A': '你选择了选项A，这是自定义回复！',
+  '选项B': '选项B已选中，请查看详细内容。',
+  '选项C': '你点击了选项C，系统正在处理...',
+  '选项D': '你选择了选项D，这是特别信息。',
+  '选项E': '选项E被选中，系统正在处理。'
+};
+
+// **底部键盘**
+const CUSTOM_KEYBOARD = [
+  ['选项A', '选项B'],
+  ['选项C', '选项D'],
+  ['选项E', '返回主菜单']
+];
+
+// **处理消息**
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) return;
+    const update = JSON.parse(e.postData.contents);
+    
+    // 处理按钮回调
+    if (update.callback_query) {
+      handleCallback(update.callback_query);
+      return;
+    }
+    
+    if (!update.message) return;
+    
+    const { chat, from, text, message_id, photo, video, animation } = update.message;
+    const chatId = chat.id;
+    const senderId = from.id;
+    
+    // 如果消息来自机器人自身或者管理员，则不处理
+    if (senderId.toString() === BOT_ID || isAdmin(chatId, senderId)) return;
+    
+    if (FILTER_ENABLED) {
+      if (text) {
+        // 避免重复处理同一条消息
+        if (USER_LAST_MESSAGE[chatId] === text) return;
+        USER_LAST_MESSAGE[chatId] = text;
+        
+        if (isSpam(text)) {
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      
+      // 检测并删除含有图片、视频或动画的消息
+      if (photo || video || animation) {
+        return handleViolation(chatId, senderId, message_id);
+      }
+      
+      // 屏蔽 Telegram 会员的自定义表情
+      if (from.custom_emoji_sticker_set_name) {
+        return handleViolation(chatId, senderId, message_id);
+      }
+    }
+    
+    if (text) {
+      if (CUSTOM_REPLIES[text]) {
+        return sendMessage(chatId, CUSTOM_REPLIES[text]);
+      } else if (text === '/start') {
+        return sendMenu(chatId);
+      } else if (text === '/settings') {
+        return sendSettingsMenu(chatId);
+      }
+    }
+  } catch (error) {
+    Logger.log('❌ 处理消息出错: ' + error.toString());
+  }
+}
+
+// **检测垃圾消息**
+function isSpam(text) {
+  // 使用正则匹配关键词边界，避免误杀
+  const spamRegex = new RegExp(`\\b(${SPAM_KEYWORDS.join('|')})\\b`, 'i');
+  const pornRegex = new RegExp(`\\b(${PORN_KEYWORDS.join('|')})\\b`, 'i');
+  return spamRegex.test(text) || pornRegex.test(text) || LINK_PATTERN.test(text);
+}
+
+// **统一违规处理逻辑**
+function handleViolation(chatId, userId, messageId) {
+  deleteMessage(chatId, messageId);
+  warnUser(chatId, userId);
+}
+
+// **删除违规消息**
+function deleteMessage(chatId, messageId) {
+  sendRequest('deleteMessage', { chat_id: chatId, message_id: messageId });
+}
+
+// **警告用户**
+function warnUser(chatId, userId) {
+  const userKey = String(userId);
+  if (!WARNINGS[userKey]) WARNINGS[userKey] = 0;
+  WARNINGS[userKey]++;
+  
+  if (WARNINGS[userKey] >= 3) {
+    sendMessage(chatId, `⚠️ 用户 ${userId} 已被禁言！`);
+    restrictUser(chatId, userId);
+  } else {
+    sendMessage(chatId, `⚠️ 警告 ${WARNINGS[userKey]}/3：请勿发送违规内容！`);
+  }
+}
+
+// **禁言违规用户（限时1小时）**
+function restrictUser(chatId, userId) {
+  const untilDate = Math.floor(Date.now() / 1000) + 3600; // 当前时间 + 1小时
+  sendRequest('restrictChatMember', {
+    chat_id: chatId,
+    user_id: userId,
+    until_date: untilDate,
+    permissions: { can_send_messages: false }
+  });
+  delete WARNINGS[String(userId)];
+}
+
+// **主菜单**
+function sendMenu(chatId) {
+  sendMessage(chatId, '请选择一个选项：', {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '按钮1', callback_data: '按钮1' }, { text: '按钮2', callback_data: '按钮2' }],
+        [{ text: '按钮3', callback_data: '按钮3' }, { text: '按钮4', callback_data: '按钮4' }],
+        [{ text: '按钮5', callback_data: '按钮5' }, { text: '按钮6', callback_data: '按钮6' }],
+        [{ text: '返回主菜单', callback_data: '返回主菜单' }]
+      ]
+    }
+  });
+  
+  sendKeyboard(chatId);
+}
+
+// **设置面板**
+function sendSettingsMenu(chatId) {
+  const statusText = FILTER_ENABLED ? '✅ 违规检测已开启！' : '❌ 违规检测已关闭！';
+  sendMessage(chatId, `⚙️ 请选择设置选项：\n\n当前状态：${statusText}`, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '开启/关闭违规检测', callback_data: 'toggle_filter' }],
+        [{ text: '返回主菜单', callback_data: '返回主菜单' }]
+      ]
+    }
+  });
+}
+
+// **发送底部键盘**
+function sendKeyboard(chatId) {
+  sendMessage(chatId, '请选择输入选项：', {
+    reply_markup: {
+      keyboard: CUSTOM_KEYBOARD,
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  });
+}
+
+// **处理按钮点击**
+function handleCallback(query) {
+  const chatId = query.message.chat.id;
+  const messageId = query.message.message_id;
+  const data = query.data;
+  
+  if (data === 'toggle_filter') {
+    FILTER_ENABLED = !FILTER_ENABLED;
+    const statusText = FILTER_ENABLED ? '✅ 违规检测已开启！' : '❌ 违规检测已关闭！';
+    editMessage(chatId, messageId, `⚙️ 设置已更新：\n${statusText}`);
+  } else if (data === '返回主菜单') {
+    sendMenu(chatId);
+  } else if (CUSTOM_REPLIES[data]) {
+    sendMessage(chatId, CUSTOM_REPLIES[data]);
+  }
+}
+
+// **检查是否是管理员**
+function isAdmin(chatId, userId) {
+  try {
+    // 如果缓存中存在，直接返回结果
+    if (ADMIN_CACHE[chatId]) {
+      return ADMIN_CACHE[chatId].includes(userId);
+    }
+    
+    const response = UrlFetchApp.fetch(`${BASE_URL}getChatAdministrators?chat_id=${chatId}`);
+    const data = JSON.parse(response.getContentText());
+    if (data.ok) {
+      ADMIN_CACHE[chatId] = data.result.map(admin => admin.user.id);
+      return ADMIN_CACHE[chatId].includes(userId);
+    }
+    return false;
+  } catch (error) {
+    return false;
+  }
+}
+
+// **发送消息**
+function sendMessage(chatId, text, options = {}) {
+  sendRequest('sendMessage', { chat_id: chatId, text: text, parse_mode: 'Markdown', ...options });
+}
+
+// **编辑消息**
+function editMessage(chatId, messageId, text, options = {}) {
+  sendRequest('editMessageText', { chat_id: chatId, message_id: messageId, text: text, parse_mode: 'Markdown', ...options });
+}
+
+// **通用请求函数**
+function sendRequest(method, payload) {
+  UrlFetchApp.fetch(`${BASE_URL}${method}`, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload)
+  });
+}
+
+// **设置 Webhook**
+function setWebhook() {
+  UrlFetchApp.fetch(`${BASE_URL}setWebhook?url=${SCRIPT_URL}`);
+}
