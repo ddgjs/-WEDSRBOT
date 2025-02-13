@@ -1,0 +1,4 @@
+浏览器访问以下格式的URL调用setWebhook方法，三角箭头也要替换掉
+
+
+https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=<YOUR_WEBHOOK_URL>
