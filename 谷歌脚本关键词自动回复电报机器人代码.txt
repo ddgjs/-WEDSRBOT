@@ -1,0 +1,47 @@
+// 设置你的Telegram Bot API令牌
+var TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'; // 将此处替换为BotFather给你的API令牌
+
+// 处理Telegram发送的POST请求
+function doPost(e) {
+  var update = JSON.parse(e.postData.contents); // 解析Telegram发送的JSON数据
+  if (update.message && update.message.text) {
+    var chatId = update.message.chat.id; // 获取聊天ID
+    var text = update.message.text;       // 获取用户发送的消息文本
+    var reply = getReply(text);           // 根据消息内容获取回复
+    sendMessage(chatId, reply);           // 发送回复给用户
+  }
+}
+
+// 根据关键词生成回复
+function getReply(text) {
+  // 定义关键词和对应的回复
+  var keywords = {
+    '你好': '你好！有什么我可以帮你的吗？',
+    '天气': '今天的天气很好，你呢？',
+    '再见': '再见，祝你一天愉快！'
+  };
+  
+  // 将用户输入转为小写并检查关键词
+  text = text.toLowerCase();
+  for (var key in keywords) {
+    if (text.includes(key)) {
+      return keywords[key]; // 如果匹配到关键词，返回对应回复
+    }
+  }
+  
+  // 如果没有匹配到关键词，返回默认回复
+  return '抱歉，我没听懂你在说什么。试试说“你好”或者“天气”吧！';
+}
+
+// 发送消息到Telegram
+function sendMessage(chatId, text) {
+  var url = 'https://api.telegram.org/bot' + TOKEN + '/sendMessage?chat_id=' + chatId + '&text=' + encodeURIComponent(text);
+  UrlFetchApp.fetch(url); // 调用Telegram API发送消息
+}
+
+// 设置Webhook（只需运行一次）
+function setWebhook() {
+  var url = 'YOUR_WEB_APP_URL'; // 替换为部署后得到的Web应用URL
+  var response = UrlFetchApp.fetch('https://api.telegram.org/bot' + TOKEN + '/setWebhook?url=' + url);
+  Logger.log(response.getContentText()); // 输出设置结果，检查是否成功
+}
