@@ -1,0 +1,1516 @@
+// ========== 基本配置 ==========
+const TOKEN = 'TOKEN'; // 请替换为您的机器人Token
+const BASE_URL = `https://api.telegram.org/bot${TOKEN}/`;
+const SCRIPT_URL = 'YOUR_SCRIPT_DEPLOYMENT_URL'; // 请替换为您的Google Apps Script部署URL
+const BOT_ID = 'BOT_ID'; // 请替换为您的机器人ID（数字格式）
+const BOT_CREATOR_ID = 'BOT_CREATOR_ID'; // 请替换为创建机器人的Telegram用户ID
+
+// ========== 持久化存储 ==========
+const USER_LAST_MESSAGE = {};
+
+// ========== 默认自定义回复 ==========
+const DEFAULT_CUSTOM_REPLIES = {
+  "按钮1": { type: "text", content: "你点击了按钮1，这是自定义文本回复！" },
+  "按钮2": {
+    type: "photo",
+    media: "https://via.placeholder.com/300",
+    caption: "这是一张图片示例",
+    inline_keyboard: [[{ text: "查看详情", url: "https://example.com/details" }]]
+  },
+  "按钮3": {
+    type: "video",
+    media: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4",
+    caption: "这是一个视频示例",
+    inline_keyboard: [[{ text: "观看视频", url: "https://example.com/video" }]]
+  },
+  "按钮4": {
+    type: "document",
+    media: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+    caption: "这是一个文档示例",
+    inline_keyboard: [[{ text: "下载文档", url: "https://example.com/document" }]]
+  },
+  "按钮5": { type: "text", content: "你点击了按钮5，这是带链接按钮的回复！", inline_keyboard: [[{ text: "访问网站", url: "https://example.com" }]] },
+  "按钮6": { type: "text", content: "你点击了按钮6，这是自定义回复示例！" },
+  "返回主菜单": { type: "text", content: "你已返回主菜单，请选择新的选项。" },
+  "选项A": { type: "text", content: "你选择了选项A，这是自定义回复！" },
+  "选项B": { type: "text", content: "选项B已选中，请查看详细内容。" },
+  "选项C": { type: "text", content: "你点击了选项C，系统正在处理..." },
+  "选项D": { type: "text", content: "你选择了选项D，这是特别信息。" },
+  "选项E": { type: "text", content: "选项E被选中，系统正在处理。" }
+};
+
+// ========== 默认欢迎消息 ==========
+const DEFAULT_WELCOME_MESSAGE = {
+  type: "text",
+  content: "欢迎 {names} 加入群聊！"
+};
+
+// ========== 自定义回复存取 ==========
+function getCustomReplies() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("CUSTOM_REPLIES");
+  if (!data) {
+    setCustomReplies(DEFAULT_CUSTOM_REPLIES);
+    return DEFAULT_CUSTOM_REPLIES;
+  }
+  try {
+    let replies = JSON.parse(data);
+    if (!replies["按钮6"]) replies["按钮6"] = DEFAULT_CUSTOM_REPLIES["按钮6"];
+    return replies;
+  } catch (err) {
+    Logger.log("解析 CUSTOM_REPLIES 错误：" + err.toString());
+    return DEFAULT_CUSTOM_REPLIES;
+  }
+}
+
+function setCustomReplies(obj) {
+  let jsonStr = JSON.stringify(obj);
+  if (jsonStr.length > 9 * 1024) throw new Error("数据超出 PropertiesService 单条限制 (9KB)");
+  PropertiesService.getScriptProperties().setProperty("CUSTOM_REPLIES", jsonStr);
+}
+
+// ========== 欢迎消息存取 ==========
+function getWelcomeMessage() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("WELCOME_MESSAGE");
+  if (!data) {
+    setWelcomeMessage(DEFAULT_WELCOME_MESSAGE);
+    return DEFAULT_WELCOME_MESSAGE;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 WELCOME_MESSAGE 错误：" + err.toString());
+    return DEFAULT_WELCOME_MESSAGE;
+  }
+}
+
+function setWelcomeMessage(obj) {
+  PropertiesService.getScriptProperties().setProperty("WELCOME_MESSAGE", JSON.stringify(obj));
+}
+
+// ========== 白名单存取 ==========
+function getWhitelist() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("WHITELIST");
+  if (!data) {
+    setWhitelist([]);
+    return [];
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 WHITELIST 错误：" + err.toString());
+    return [];
+  }
+}
+
+function setWhitelist(list) {
+  PropertiesService.getScriptProperties().setProperty("WHITELIST", JSON.stringify(list));
+}
+
+// ========== 时区设置存取 ==========
+function getTimezone() {
+  const props = PropertiesService.getScriptProperties();
+  let timezone = props.getProperty("TIMEZONE");
+  return timezone || "Asia/Shanghai"; // 默认北京时间
+}
+
+function setTimezone(timezone) {
+  PropertiesService.getScriptProperties().setProperty("TIMEZONE", timezone);
+}
+
+// ========== 开关与设置存取 ==========
+function getSetting(key, defaultValue) {
+  const props = PropertiesService.getScriptProperties();
+  let value = props.getProperty(key);
+  if (value === null) return defaultValue;
+  if (typeof defaultValue === "boolean") return value === "true";
+  if (typeof defaultValue === "number") return parseInt(value, 10);
+  return value;
+}
+
+function setSetting(key, value) {
+  PropertiesService.getScriptProperties().setProperty(key, value.toString());
+}
+
+function getFilterEnabled() { return getSetting("FILTER_ENABLED", true); }
+function getFuzzyMatchEnabled() { return getSetting("FUZZY_MATCH_ENABLED", false); }
+function getForwardFilterEnabled() { return getSetting("FORWARD_FILTER_ENABLED", true); }
+function getPornMediaFilterEnabled() { return getSetting("PORN_MEDIA_FILTER_ENABLED", true); }
+function getWelcomeEnabled() { return getSetting("WELCOME_ENABLED", true); }
+function setWelcomeEnabled(val) { setSetting("WELCOME_ENABLED", val); }
+function getAdminExempt() { return getSetting("ADMIN_EXEMPT", true); }
+function setAdminExempt(val) { setSetting("ADMIN_EXEMPT", val); }
+function getQuizVerificationEnabled() { return getSetting("QUIZ_VERIFICATION_ENABLED", true); }
+function setQuizVerificationEnabled(val) { setSetting("QUIZ_VERIFICATION_ENABLED", val); }
+function getMuteDuration() { return getSetting("MUTE_DURATION", 3600); }
+function getWarningLimit() { return getSetting("WARNING_LIMIT", 3); }
+function getPunishmentAutoDeleteDuration() { return getSetting("PUNISHMENT_AUTO_DELETE", 10); }
+function getEventAutoDeleteDuration() { return getSetting("EVENT_AUTO_DELETE", 10); }
+function getWelcomeAutoDeleteDuration() { return getSetting("WELCOME_AUTO_DELETE", 0); }
+function setWelcomeAutoDeleteDuration(val) { setSetting("WELCOME_AUTO_DELETE", val); }
+function getReplyAutoDeleteDuration() { return getSetting("REPLY_AUTO_DELETE", 0); }
+function setReplyAutoDeleteDuration(val) { setSetting("REPLY_AUTO_DELETE", val); }
+
+// ========== 新功能：置顶消息自动删除设置 ==========
+function getPinAutoDeleteEnabled() { return getSetting("PIN_AUTO_DELETE_ENABLED", false); }
+function setPinAutoDeleteEnabled(val) { setSetting("PIN_AUTO_DELETE_ENABLED", val); }
+function getPinAutoDeleteInterval() { return getSetting("PIN_AUTO_DELETE_INTERVAL", 60); }
+function setPinAutoDeleteInterval(val) { setSetting("PIN_AUTO_DELETE_INTERVAL", val); }
+
+// ========== 新功能：夜间模式设置 ==========
+function getNightModeEnabled() { return getSetting("NIGHT_MODE_ENABLED", false); }
+function setNightModeEnabled(val) { setSetting("NIGHT_MODE_ENABLED", val); }
+function getNightModeStart() { return getSetting("NIGHT_MODE_START", "22:00"); }
+function setNightModeStart(val) { setSetting("NIGHT_MODE_START", val); }
+function getNightModeEnd() { return getSetting("NIGHT_MODE_END", "07:00"); }
+function setNightModeEnd(val) { setSetting("NIGHT_MODE_END", val); }
+
+// ========== 新增功能：只删除图片与网址的夜间模式 ==========
+function getOnlyMediaLinkNightModeEnabled() { return getSetting("ONLY_MEDIA_LINK_NIGHT_MODE_ENABLED", false); }
+function setOnlyMediaLinkNightModeEnabled(val) { setSetting("ONLY_MEDIA_LINK_NIGHT_MODE_ENABLED", val); }
+
+// ========== 固定配置 ==========
+const SPAM_KEYWORDS = ["广告", "免费", "推广", "投资", "赚钱", "优惠"];
+const PORN_KEYWORDS = ["裸露", "成人", "色情", "性爱", "激情"];
+const LINK_PATTERN = /(https?:\/\/|www\.)\S+/i;
+const FUZZY_THRESHOLD = 0.3;
+
+// ========== 自定义模糊违禁词存取 ==========
+function getFuzzyBannedWords() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("FUZZY_BANNED_WORDS");
+  if (!data) {
+    setFuzzyBannedWords([]);
+    return [];
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 FUZZY_BANNED_WORDS 错误：" + err.toString());
+    return [];
+  }
+}
+
+function setFuzzyBannedWords(words) {
+  PropertiesService.getScriptProperties().setProperty("FUZZY_BANNED_WORDS", JSON.stringify(words));
+}
+
+// ========== 警告次数存取 ==========
+function getWarningCount(chatId, userId) {
+  let key = "warn_" + chatId + "_" + userId;
+  let count = PropertiesService.getScriptProperties().getProperty(key);
+  return count ? parseInt(count, 10) : 0;
+}
+
+function setWarningCount(chatId, userId, count) {
+  let key = "warn_" + chatId + "_" + userId;
+  PropertiesService.getScriptProperties().setProperty(key, count.toString());
+}
+
+function deleteWarningCount(chatId, userId) {
+  let key = "warn_" + chatId + "_" + userId;
+  PropertiesService.getScriptProperties().deleteProperty(key);
+}
+
+// ========== 记录机器人所在群组 ==========
+function recordGroup(chatId, groupTitle) {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  if (!groups[chatId]) {
+    groups[chatId] = groupTitle;
+    props.setProperty("GROUPS", JSON.stringify(groups));
+  }
+}
+
+function showGroupList(chatId) {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  let text = "机器人所在群组列表：\n";
+  for (let id in groups) {
+    text += `群ID: ${id}, 名称: ${groups[id]}\n`;
+  }
+  sendMessage(chatId, text);
+}
+
+// ========== 自动删除时间循环函数 ==========
+function cycleWelcomeAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getWelcomeAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setWelcomeAutoDeleteDuration(newDuration);
+  Logger.log("更新欢迎消息自动删除时长，从 " + current + " 秒到 " + newDuration + " 秒");
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleReplyAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getReplyAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setReplyAutoDeleteDuration(newDuration);
+  Logger.log("更新关键词回复自动删除时长，从 " + current + " 秒到 " + newDuration + " 秒");
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+// ========== 新功能：置顶消息自动删除 ==========
+function deletePinnedMessages() {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  for (let chatId in groups) {
+    let pinnedMessage = getPinnedMessage(chatId);
+    if (pinnedMessage) {
+      deleteMessage(chatId, pinnedMessage.message_id);
+      Logger.log(`Deleted pinned message in chat ${chatId}`);
+    }
+  }
+}
+
+function getPinnedMessage(chatId) {
+  let response = sendRequest("getChat", { chat_id: chatId });
+  if (response.ok && response.result.pinned_message) {
+    return response.result.pinned_message;
+  }
+  return null;
+}
+
+function setupPinAutoDeleteTrigger() {
+  deleteTriggers("deletePinnedMessages");
+  if (getPinAutoDeleteEnabled()) {
+    let interval = getPinAutoDeleteInterval();
+    ScriptApp.newTrigger("deletePinnedMessages")
+      .timeBased()
+      .everyMinutes(interval)
+      .create();
+    Logger.log(`Pin auto-delete trigger set every ${interval} minutes`);
+  }
+}
+
+function deleteTriggers(functionName) {
+  let triggers = ScriptApp.getProjectTriggers();
+  for (let trigger of triggers) {
+    if (trigger.getHandlerFunction() === functionName) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  }
+}
+
+// ========== 新功能：夜间模式（支持时区） ==========
+function isNightModeActive() {
+  if (!getNightModeEnabled() && !getOnlyMediaLinkNightModeEnabled()) return false;
+  
+  const timezone = getTimezone();
+  const now = new Date((new Date()).toLocaleString("en-US", { timeZone: timezone }));
+  let start = parseTime(getNightModeStart(), timezone);
+  let end = parseTime(getNightModeEnd(), timezone);
+  
+  let nowMinutes = now.getHours() * 60 + now.getMinutes();
+  let startMinutes = start.getHours() * 60 + start.getMinutes();
+  let endMinutes = end.getHours() * 60 + end.getMinutes();
+  
+  if (startMinutes < endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  } else {
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+  }
+}
+
+function parseTime(timeStr, timezone) {
+  let [hours, minutes] = timeStr.split(":").map(Number);
+  let date = new Date();
+  date = new Date(date.toLocaleString("en-US", { timeZone: timezone }));
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+// ========== 主处理函数 ==========
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) return;
+    const update = JSON.parse(e.postData.contents);
+
+    if (update.callback_query) {
+      handleCallback(update.callback_query);
+      return;
+    }
+
+    if (update.chat_member) {
+      handleChatMemberUpdate(update.chat_member);
+      return;
+    }
+
+    if (!update.message) return;
+
+    const message = update.message;
+    const chatId = message.chat.id;
+    const senderId = message.from.id;
+    const text = message.text;
+    const message_id = message.message_id;
+    Logger.log(`收到消息：chatId=${chatId}, senderId=${senderId}, text=${text}`);
+
+    if (chatId < 0) {
+      let groupTitle = message.chat.title || "未知群组";
+      recordGroup(chatId, groupTitle);
+    }
+    if (chatId < 0 && senderId === Number(BOT_ID)) return;
+
+    let isSenderAdmin = isAdmin(chatId, senderId);
+    let whitelist = getWhitelist();
+    let isWhitelisted = whitelist.includes(senderId.toString());
+
+    // 夜间模式处理
+    if (chatId < 0 && isNightModeActive() && !isSenderAdmin && !isWhitelisted) {
+      let deleted = false;
+      if (getOnlyMediaLinkNightModeEnabled() && (message.photo || (text && LINK_PATTERN.test(text)))) {
+        deleteMessage(chatId, message_id);
+        sendAutoDeleteMessage(chatId, "夜间模式（仅图片与网址）已启用，此消息已被删除。", 10);
+        deleted = true;
+      }
+      if (getNightModeEnabled() && !deleted) {
+        deleteMessage(chatId, message_id);
+        sendAutoDeleteMessage(chatId, "夜间模式已启用，非管理员消息将被删除。", 10);
+        return;
+      }
+      if (deleted) return;
+    }
+
+    // 管理员命令处理
+    if (text && isSenderAdmin) {
+      if (text.startsWith("/addreply") || text.startsWith("/editreply")) {
+        let params = text.substring(text.indexOf(" ") + 1).trim();
+        let parts = params.split("|");
+        if (parts.length < 3) {
+          return sendMessage(chatId, "格式错误，格式：/addreply 关键词|类型|内容[|说明]，类型可为 text, photo, video, document");
+        }
+        let keyword = parts[0].trim();
+        let type = parts[1].trim();
+        let content = parts[2].trim();
+        let replyObj = { type: type };
+        if (type === "text") {
+          replyObj.content = content;
+        } else if (["photo", "video", "document"].includes(type)) {
+          replyObj.media = content;
+          if (parts.length >= 4) replyObj.caption = parts[3].trim();
+        } else {
+          return sendMessage(chatId, "未知的类型，请使用 text, photo, video 或 document");
+        }
+        let customReplies = getCustomReplies();
+        customReplies[keyword] = replyObj;
+        setCustomReplies(customReplies);
+        Logger.log(`添加/更新关键词回复: ${keyword} -> ${JSON.stringify(replyObj)}`);
+        return sendMessage(chatId, `关键词回复 "${keyword}" 已添加/更新`);
+      }
+      if (text.startsWith("/delreply")) {
+        let keyword = text.substring(9).trim();
+        let customReplies = getCustomReplies();
+        if (customReplies.hasOwnProperty(keyword)) {
+          delete customReplies[keyword];
+          setCustomReplies(customReplies);
+          Logger.log(`删除关键词回复: ${keyword}`);
+          return sendMessage(chatId, `关键词回复 "${keyword}" 已删除`);
+        }
+        return sendMessage(chatId, `关键词回复 "${keyword}" 不存在`);
+      }
+      if (text.startsWith("/delfuzzy")) {
+        let params = text.substring(text.indexOf(" ") + 1).trim();
+        let fuzzyWords = getFuzzyBannedWords();
+        let index = fuzzyWords.indexOf(params);
+        if (index !== -1) {
+          fuzzyWords.splice(index, 1);
+          setFuzzyBannedWords(fuzzyWords);
+          Logger.log(`删除自定义模糊违禁词：${params}`);
+          return sendMessage(chatId, `自定义模糊违禁词 "${params}" 已删除`);
+        }
+        return sendMessage(chatId, `自定义模糊违禁词 "${params}" 不存在`);
+      }
+      if (text.startsWith("/clearwarnings")) {
+        if (message.reply_to_message && message.reply_to_message.from) {
+          let targetUser = message.reply_to_message.from;
+          deleteWarningCount(chatId, targetUser.id);
+          return sendMessage(chatId, `已清除用户 ${targetUser.id} 的警告记录`);
+        }
+        let parts = text.split(" ");
+        if (parts.length < 2) {
+          return sendMessage(chatId, "请回复要清除警告的用户消息，或者使用格式：/clearwarnings 用户ID");
+        }
+        let targetUserId = parts[1].trim();
+        deleteWarningCount(chatId, targetUserId);
+        return sendMessage(chatId, `已清除用户 ${targetUserId} 的警告记录`);
+      }
+      if (text.startsWith("/stats")) {
+        let allProps = PropertiesService.getScriptProperties().getProperties();
+        let statsText = "当前警告统计：\n";
+        for (let key in allProps) {
+          if (key.indexOf("warn_" + chatId + "_") === 0) {
+            let parts = key.split("_");
+            let userId = parts[2];
+            let count = allProps[key];
+            statsText += `用户 ${userId} 警告次数: ${count}\n`;
+          }
+        }
+        if (statsText === "当前警告统计：\n") statsText += "无警告记录。";
+        return sendMessage(chatId, statsText);
+      }
+      if (text.startsWith("/addwhitelist")) {
+        let userId = text.substring(12).trim();
+        let whitelist = getWhitelist();
+        if (!whitelist.includes(userId)) {
+          whitelist.push(userId);
+          setWhitelist(whitelist);
+          return sendMessage(chatId, `用户 ${userId} 已添加到白名单`);
+        }
+        return sendMessage(chatId, `用户 ${userId} 已存在于白名单`);
+      }
+      if (text.startsWith("/delwhitelist")) {
+        let userId = text.substring(12).trim();
+        let whitelist = getWhitelist();
+        let index = whitelist.indexOf(userId);
+        if (index !== -1) {
+          whitelist.splice(index, 1);
+          setWhitelist(whitelist);
+          return sendMessage(chatId, `用户 ${userId} 已从白名单移除`);
+        }
+        return sendMessage(chatId, `用户 ${userId} 不在白名单中`);
+      }
+      if (text.startsWith("/settimezone")) {
+        let parts = text.split(" ");
+        if (parts.length < 2) {
+          return sendMessage(chatId, "格式错误，使用：/settimezone 时区名\n例如：/settimezone Asia/Shanghai");
+        }
+        let timezone = parts[1].trim();
+        try {
+          // 验证时区有效性
+          new Date().toLocaleString("en-US", { timeZone: timezone });
+          setTimezone(timezone);
+          return sendMessage(chatId, `时区已设置为 ${timezone}，当前时间: ${new Date().toLocaleString("en-US", { timeZone: timezone })}`);
+        } catch (err) {
+          return sendMessage(chatId, `无效的时区名：${timezone}，请使用 IANA 时区名（如 Asia/Shanghai）`);
+        }
+      }
+      const cacheWelcome = CacheService.getScriptCache();
+      const welcomeFlag = cacheWelcome.get("TEMP_WELCOME_" + senderId);
+      if (welcomeFlag !== null) {
+        let parts = text.split("|");
+        if (parts.length < 2) {
+          sendMessage(chatId, "格式错误。请使用 格式：类型|内容[|说明]，类型可为 text, photo, video, document");
+          cacheWelcome.remove("TEMP_WELCOME_" + senderId);
+          return;
+        }
+        let type = parts[0].trim();
+        if (!["text", "photo", "video", "document"].includes(type)) {
+          sendMessage(chatId, "未知的类型，请使用 text, photo, video 或 document");
+          cacheWelcome.remove("TEMP_WELCOME_" + senderId);
+          return;
+        }
+        let newWelcome = { type: type };
+        if (type === "text") {
+          newWelcome.content = parts[1].trim();
+        } else {
+          newWelcome.media = parts[1].trim();
+          newWelcome.caption = parts.length >= 3 ? parts[2].trim() : "";
+        }
+        setWelcomeMessage(newWelcome);
+        sendMessage(chatId, "欢迎消息已更新！");
+        cacheWelcome.remove("TEMP_WELCOME_" + senderId);
+        return;
+      }
+      const cacheFuzzy = CacheService.getScriptCache();
+      const cachedChatId = cacheFuzzy.get("TEMP_FUZZY_" + senderId);
+      if (cachedChatId !== null) {
+        if (chatId > 0 || cachedChatId === chatId.toString()) {
+          let fuzzyWords = getFuzzyBannedWords();
+          if (fuzzyWords.indexOf(text) === -1) {
+            fuzzyWords.push(text);
+            setFuzzyBannedWords(fuzzyWords);
+            Logger.log(`成功添加模糊违禁词：${text}`);
+            sendMessage(chatId, `自定义模糊违禁词 "${text}" 已添加。`);
+          } else {
+            sendMessage(chatId, `自定义模糊违禁词 "${text}" 已存在。`);
+          }
+          cacheFuzzy.remove("TEMP_FUZZY_" + senderId);
+          return;
+        }
+      }
+      if (text.startsWith("/setpindelete")) {
+        let parts = text.split(" ");
+        if (parts.length < 2) {
+          return sendMessage(chatId, "格式错误，使用：/setpindelete on/off [间隔分钟数]");
+        }
+        let state = parts[1].toLowerCase();
+        if (state === "on") {
+          let interval = parts.length > 2 ? parseInt(parts[2], 10) : 60;
+          if (isNaN(interval) || interval < 1) interval = 60;
+          setPinAutoDeleteEnabled(true);
+          setPinAutoDeleteInterval(interval);
+          setupPinAutoDeleteTrigger();
+          return sendMessage(chatId, `置顶消息自动删除已启用，每 ${interval} 分钟检查一次。`);
+        } else if (state === "off") {
+          setPinAutoDeleteEnabled(false);
+          deleteTriggers("deletePinnedMessages");
+          return sendMessage(chatId, "置顶消息自动删除已关闭。");
+        } else {
+          return sendMessage(chatId, "无效参数，使用：/setpindelete on/off [间隔分钟数]");
+        }
+      }
+      if (text.startsWith("/setnightmode")) {
+        let parts = text.split(" ");
+        if (parts.length < 4 && parts[1] !== "off") {
+          return sendMessage(chatId, "格式错误，使用：/setnightmode on 开始时间 结束时间 或 /setnightmode off\n例如：/setnightmode on 22:00 07:00");
+        }
+        let state = parts[1].toLowerCase();
+        if (state === "on") {
+          let startTime = parts[2];
+          let endTime = parts[3];
+          if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+            return sendMessage(chatId, "时间格式错误，请使用 HH:MM，如 22:00");
+          }
+          setNightModeEnabled(true);
+          setNightModeStart(startTime);
+          setNightModeEnd(endTime);
+          return sendMessage(chatId, `夜间模式已启用，从 ${startTime} 到 ${endTime} (时区: ${getTimezone()})。`);
+        } else if (state === "off") {
+          setNightModeEnabled(false);
+          return sendMessage(chatId, "夜间模式已关闭。");
+        } else {
+          return sendMessage(chatId, "无效参数，使用：/setnightmode on 开始时间 结束时间 或 /setnightmode off");
+        }
+      }
+      if (text === "/settings" && senderId.toString() === BOT_CREATOR_ID) {
+        return sendSettingsMenu(chatId);
+      } else if (text === "/settings") {
+        return sendMessage(chatId, "只有机器人创建者可以使用此命令。");
+      }
+    }
+
+    // 群事件处理 - 新成员加入（修复）
+    if (message.new_chat_members) {
+      const newMembers = message.new_chat_members;
+      const isQuizVerificationEnabled = getQuizVerificationEnabled();
+
+      if (!getWelcomeEnabled()) {
+        deleteMessage(chatId, message_id);
+        return;
+      }
+
+      let membersToWelcome = [];
+      newMembers.forEach(function(member) {
+        Logger.log(`新成员加入: ID=${member.id}, 用户名=${member.username || '无'}, 是机器人=${member.is_bot}`);
+        
+        // 跳过机器人本身
+        if (member.id === Number(BOT_ID)) {
+          Logger.log(`检测到机器人自身加入 (ID=${BOT_ID})，跳过处理`);
+          return;
+        }
+
+        const isMemberAdmin = isAdmin(chatId, member.id);
+        const whitelist = getWhitelist();
+        const isWhitelisted = whitelist.includes(member.id.toString());
+
+        // 如果启用验证，非管理员且不在白名单的用户需要回答选择题
+        if (isQuizVerificationEnabled && !isMemberAdmin && !isWhitelisted) {
+          Logger.log(`触发验证: 用户 ${member.id}`);
+          sendQuizVerification(chatId, member);
+        } else {
+          Logger.log(`无需验证: 用户 ${member.id} (管理员=${isMemberAdmin}, 白名单=${isWhitelisted})`);
+          membersToWelcome.push(member);
+        }
+      });
+
+      if (membersToWelcome.length > 0) {
+        sendCustomWelcome(chatId, membersToWelcome);
+      }
+
+      deleteMessage(chatId, message_id);
+      return;
+    }
+
+    // 其他群事件处理
+    if (message.left_chat_member) {
+      const name = message.left_chat_member.first_name;
+      sendAutoDeleteMessage(chatId, `用户 ${name} 离开了群聊`, getEventAutoDeleteDuration());
+      deleteMessage(chatId, message_id);
+      return;
+    }
+    if (message.new_chat_title) {
+      const newTitle = message.new_chat_title;
+      sendAutoDeleteMessage(chatId, `群聊名称已更新为: ${newTitle}`, getEventAutoDeleteDuration());
+      deleteMessage(chatId, message_id);
+      return;
+    }
+
+    // 违规检测
+    if (getFilterEnabled() && !(isSenderAdmin && getAdminExempt()) && !isWhitelisted) {
+      if (message.forward_from_chat && message.forward_from_chat.type === "channel") {
+        Logger.log("检测到从频道转发的消息");
+        return handleViolation(chatId, senderId, message_id);
+      }
+
+      if (getForwardFilterEnabled() && message.forward_date) {
+        let fwdContent = text || message.caption || "";
+        if (fwdContent && isSpam(fwdContent)) {
+          Logger.log("检测到转发消息内容违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (text) {
+        if (USER_LAST_MESSAGE[chatId] === text) return;
+        USER_LAST_MESSAGE[chatId] = text;
+        if (isSpam(text)) {
+          Logger.log("检测到文本违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.photo && getPornMediaFilterEnabled()) {
+        let photoArray = message.photo;
+        let largestPhoto = photoArray[photoArray.length - 1];
+        let file_id = largestPhoto.file_id;
+        if (analyzePhotoSafeSearch(file_id)) {
+          Logger.log("检测到色情媒体违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.video || message.animation) {
+        let caption = message.caption;
+        if (caption && isSpam(caption)) {
+          Logger.log("检测到视频/动画违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.document) {
+        let fileName = message.document.file_name || "";
+        if (/\.apk$/i.test(fileName)) {
+          Logger.log("检测到 APK 文件违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.from && message.from.custom_emoji_sticker_set_name) {
+        Logger.log("检测到自定义表情违规");
+        return handleViolation(chatId, senderId, message_id);
+      }
+    }
+
+    // 自定义回复处理
+    if (text) {
+      const customReplies = getCustomReplies();
+      if (customReplies[text]) {
+        Logger.log("匹配到自定义回复: " + text);
+        return sendCustomReply(chatId, customReplies[text]);
+      } else if (text === "/help") {
+        return sendHelpMessage(chatId);
+      } else if (text === "/start") {
+        return sendMenu(chatId);
+      }
+    }
+  } catch (error) {
+    Logger.log("❌ 处理消息出错: " + error.toString());
+  }
+}
+
+// ========== 处理群成员更新 ==========
+function handleChatMemberUpdate(chatMemberUpdate) {
+  const chatId = chatMemberUpdate.chat.id;
+  const oldMember = chatMemberUpdate.old_chat_member;
+  const newMember = chatMemberUpdate.new_chat_member;
+
+  if (oldMember.user.first_name !== newMember.user.first_name ||
+      oldMember.user.last_name !== newMember.user.last_name) {
+    const userId = newMember.user.id;
+    const oldName = oldMember.user.first_name + (oldMember.user.last_name ? " " + oldMember.user.last_name : "");
+    const newName = newMember.user.first_name + (newMember.user.last_name ? " " + newMember.user.last_name : "");
+    Logger.log(`检测到用户更名：${oldName} -> ${newName}`);
+
+    const reminderText = `用户 ${oldName} 更名为 ${newName}，请谨防冒充该用户搞诈骗！`;
+    const result = sendMessage(chatId, reminderText);
+    if (result && result.ok && result.result && result.result.message_id) {
+      const messageId = result.result.message_id;
+      pinChatMessage(chatId, messageId);
+    }
+  }
+}
+
+// ========== 置顶消息 ==========
+function pinChatMessage(chatId, messageId) {
+  sendRequest("pinChatMessage", {
+    chat_id: chatId,
+    message_id: messageId,
+    disable_notification: true
+  });
+}
+
+// ========== 发送选择题验证 ==========
+function sendQuizVerification(chatId, member) {
+  const options = ["苹果", "香蕉", "橙子", "葡萄"];
+  const correctIndex = Math.floor(Math.random() * options.length);
+  const correctAnswer = options[correctIndex];
+  const quizKey = "QUIZ_VERIFY_" + chatId + "_" + member.id;
+  CacheService.getScriptCache().put(quizKey, correctAnswer, 300);
+
+  const inlineKeyboard = options.map((opt, index) => [{
+    text: opt,
+    callback_data: `quiz_${chatId}_${member.id}_${index}`
+  }]);
+
+  const result = sendMessage(chatId, `欢迎 ${member.first_name}！请在5分钟内回答：以下哪项是水果？`, {
+    reply_markup: { inline_keyboard: inlineKeyboard }
+  });
+
+  if (result && result.ok && result.result && result.result.message_id) {
+    CacheService.getScriptCache().put(quizKey + "_MSG", result.result.message_id, 300);
+  }
+}
+
+// ========== 帮助说明消息 ==========
+function sendHelpMessage(chatId) {
+  const helpText =
+    "【使用说明】\n\n" +
+    "【基本命令】\n" +
+    "• /help - 显示本帮助信息\n" +
+    "• /start - 显示主菜单\n" +
+    "• /settings - 显示设置面板，仅限机器人创建者使用\n" +
+    "• /stats - 查看当前群内违规警告统计（仅管理员）\n" +
+    "• /clearwarnings - 清除指定用户的警告记录（仅管理员，可通过回复消息或指定用户ID）\n" +
+    "• /setpindelete on/off [间隔分钟数] - 设置置顶消息自动删除（仅管理员）\n" +
+    "• /setnightmode on 开始时间 结束时间 或 /setnightmode off - 设置夜间模式（仅管理员）\n" +
+    "• /settimezone 时区名 - 设置时区（仅管理员，例如 /settimezone Asia/Shanghai）\n" +
+    "• /addwhitelist 用户ID - 添加用户到白名单（仅管理员）\n" +
+    "• /delwhitelist 用户ID - 从白名单移除用户（仅管理员）\n\n" +
+    "【自定义回复管理】\n" +
+    "• /addreply 关键词|类型|内容[|说明]\n" +
+    "    - 添加或更新自定义回复\n" +
+    "    - 示例：/addreply 按钮7|text|这是新回复\n" +
+    "    - 类型可为 text, photo, video, document\n" +
+    "• /delreply 关键词\n" +
+    "    - 删除指定的自定义回复\n\n" +
+    "【模糊违禁词管理】\n" +
+    "• 点击设置面板中的【模糊违禁词管理】按钮查看、添加或删除\n" +
+    "• 或使用命令：/delfuzzy 违禁词\n" +
+    "    - 删除指定的模糊违禁词\n\n" +
+    "【欢迎消息设置】\n" +
+    "• 点击【设置欢迎消息】按钮修改欢迎消息\n" +
+    "• 格式：类型|内容[|说明]\n" +
+    "    - 示例：text|欢迎 {names} 加入群聊！\n" +
+    "    - 类型支持 text, photo, video, document\n\n" +
+    "【违规检测说明】\n" +
+    "• 机器人会自动拦截所有从频道转发的消息\n" +
+    "• 检测消息中的广告、链接、色情内容及模糊违禁词\n" +
+    "• 违规时删除消息并警告，累计警告达到设定次数后禁言用户\n\n" +
+    "【新功能】\n" +
+    "• **置顶消息自动删除**：通过 /setpindelete 命令设置定时删除群置顶消息\n" +
+    "• **夜间模式**：通过 /setnightmode 命令设置夜间时间段，自动删除非管理员消息\n" +
+    "• **只删除图片与网址的夜间模式**：在设置面板中启用，仅删除含图片或网址的消息\n" +
+    "• **选择题验证**：新成员需回答选择题，5分钟内答对入群，答错踢出\n" +
+    "• **时区设置**：通过 /settimezone 设置时间参考，默认 Asia/Shanghai\n" +
+    "• **白名单**：通过 /addwhitelist 和 /delwhitelist 管理无需验证的用户";
+  sendMessage(chatId, helpText);
+}
+
+// ========== 自定义回复处理 ==========
+function sendCustomReply(chatId, reply) {
+  let markup = reply.inline_keyboard ? { inline_keyboard: reply.inline_keyboard } : undefined;
+  let autoDuration = getReplyAutoDeleteDuration();
+  switch (reply.type) {
+    case "text":
+      if (autoDuration > 0) {
+        return sendAutoDeleteMessage(chatId, reply.content, autoDuration, { reply_markup: markup });
+      }
+      return sendMessage(chatId, reply.content, { reply_markup: markup });
+    case "photo":
+      if (autoDuration > 0) {
+        let result = sendPhoto(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+        if (result && result.ok && result.result && result.result.message_id) {
+          Utilities.sleep(autoDuration * 1000);
+          deleteMessage(chatId, result.result.message_id);
+        }
+        return result;
+      }
+      return sendPhoto(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+    case "video":
+      if (autoDuration > 0) {
+        let result = sendVideo(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+        if (result && result.ok && result.result && result.result.message_id) {
+          Utilities.sleep(autoDuration * 1000);
+          deleteMessage(chatId, result.result.message_id);
+        }
+        return result;
+      }
+      return sendVideo(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+    case "document":
+      if (autoDuration > 0) {
+        let result = sendDocument(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+        if (result && result.ok && result.result && result.result.message_id) {
+          Utilities.sleep(autoDuration * 1000);
+          deleteMessage(chatId, result.result.message_id);
+        }
+        return result;
+      }
+      return sendDocument(chatId, reply.media, { caption: reply.caption, reply_markup: markup });
+    default:
+      return sendMessage(chatId, "未知的回复类型");
+  }
+}
+
+// ========== 欢迎消息发送 ==========
+function sendCustomWelcome(chatId, newMembers) {
+  if (!getWelcomeEnabled()) return;
+  let welcome = getWelcomeMessage();
+  let names = newMembers.map(u => u.first_name).join(", ");
+  let options = {};
+  let autoDuration = getWelcomeAutoDeleteDuration();
+  if (welcome.type === "text") {
+    let textToSend = welcome.content.replace("{names}", names);
+    if (autoDuration > 0) {
+      sendAutoDeleteMessage(chatId, textToSend, autoDuration, options);
+    } else {
+      sendMessage(chatId, textToSend, options);
+    }
+  } else if (welcome.type === "photo") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    if (autoDuration > 0) {
+      let result = sendPhoto(chatId, welcome.media, { caption: options.caption });
+      if (result && result.ok && result.result && result.result.message_id) {
+        Utilities.sleep(autoDuration * 1000);
+        deleteMessage(chatId, result.result.message_id);
+      }
+    } else {
+      sendPhoto(chatId, welcome.media, { caption: options.caption });
+    }
+  } else if (welcome.type === "video") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    if (autoDuration > 0) {
+      let result = sendVideo(chatId, welcome.media, { caption: options.caption });
+      if (result && result.ok && result.result && result.result.message_id) {
+        Utilities.sleep(autoDuration * 1000);
+        deleteMessage(chatId, result.result.message_id);
+      }
+    } else {
+      sendVideo(chatId, welcome.media, { caption: options.caption });
+    }
+  } else if (welcome.type === "document") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    if (autoDuration > 0) {
+      let result = sendDocument(chatId, welcome.media, { caption: options.caption });
+      if (result && result.ok && result.result && result.result.message_id) {
+        Utilities.sleep(autoDuration * 1000);
+        deleteMessage(chatId, result.result.message_id);
+      }
+    } else {
+      sendDocument(chatId, welcome.media, { caption: options.caption });
+    }
+  }
+}
+
+// ========== 违规检测及处理 ==========
+function isSpam(text) {
+  const spamRegex = new RegExp(`\\b(${SPAM_KEYWORDS.join("|")})\\b`, "i");
+  const pornRegex = new RegExp(`\\b(${PORN_KEYWORDS.join("|")})\\b`, "i");
+  if (spamRegex.test(text) || pornRegex.test(text) || LINK_PATTERN.test(text)) {
+    Logger.log("关键词或链接匹配");
+    return true;
+  }
+  if (getFuzzyMatchEnabled()) {
+    if (fuzzyContains(text, getFuzzyBannedWords(), FUZZY_THRESHOLD)) {
+      Logger.log("模糊匹配到违禁词");
+      return true;
+    }
+  }
+  return false;
+}
+
+function handleViolation(chatId, userId, messageId) {
+  if (!deleteMessage(chatId, messageId)) {
+    Logger.log(`删除消息 ${messageId} 失败`);
+    return;
+  }
+  warnUser(chatId, userId);
+}
+
+function deleteMessage(chatId, messageId) {
+  let result = sendRequest("deleteMessage", { chat_id: chatId, message_id: messageId });
+  return result && result.ok;
+}
+
+function sendAutoDeleteMessage(chatId, text, autoDeleteSeconds, options = {}) {
+  const result = sendMessage(chatId, text, options);
+  if (result && result.ok && result.result && result.result.message_id && autoDeleteSeconds > 0) {
+    Utilities.sleep(autoDeleteSeconds * 1000);
+    deleteMessage(chatId, result.result.message_id);
+  }
+}
+
+function warnUser(chatId, userId) {
+  let count = getWarningCount(chatId, userId);
+  count++;
+  setWarningCount(chatId, userId, count);
+  const autoDel = getPunishmentAutoDeleteDuration();
+  if (count >= getWarningLimit()) {
+    if (autoDel > 0) {
+      sendAutoDeleteMessage(chatId, `⚠️ 用户 ${userId} 已被禁言！`, autoDel);
+    } else {
+      sendMessage(chatId, `⚠️ 用户 ${userId} 已被禁言！`);
+    }
+    restrictUser(chatId, userId);
+    deleteWarningCount(chatId, userId);
+  } else {
+    if (autoDel > 0) {
+      sendAutoDeleteMessage(chatId, `⚠️ 警告 ${count}/${getWarningLimit()}：请勿发送违规内容！`, autoDel);
+    } else {
+      sendMessage(chatId, `⚠️ 警告 ${count}/${getWarningLimit()}：请勿发送违规内容！`);
+    }
+  }
+}
+
+function restrictUser(chatId, userId) {
+  const untilDate = Math.floor(Date.now() / 1000) + getMuteDuration();
+  sendRequest("restrictChatMember", {
+    chat_id: chatId,
+    user_id: userId,
+    until_date: untilDate,
+    permissions: { can_send_messages: false }
+  });
+}
+
+function kickUser(chatId, userId) {
+  sendRequest("kickChatMember", {
+    chat_id: chatId,
+    user_id: userId
+  });
+}
+
+// ========== 模糊匹配工具函数 ==========
+function levenshteinDistance(a, b) {
+  const m = a.length, n = b.length;
+  const dp = [];
+  for (let i = 0; i <= m; i++) dp[i] = [i];
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a.charAt(i - 1) === b.charAt(j - 1)) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = Math.min(dp[i - 1][j - 1] + 1, dp[i][j - 1] + 1, dp[i - 1][j] + 1);
+      }
+    }
+  }
+  return dp[m][n];
+}
+
+function fuzzyMatch(text, bannedWord, threshold) {
+  text = text.toLowerCase();
+  bannedWord = bannedWord.toLowerCase();
+  const L = bannedWord.length;
+  if (text.length < L) {
+    const d = levenshteinDistance(text, bannedWord);
+    return (d / L <= threshold);
+  }
+  for (let i = 0; i <= text.length - L; i++) {
+    const sub = text.substring(i, i + L);
+    const d = levenshteinDistance(sub, bannedWord);
+    if (d / L <= threshold) return true;
+  }
+  return false;
+}
+
+function fuzzyContains(text, bannedWords, threshold) {
+  for (let i = 0; i < bannedWords.length; i++) {
+    if (fuzzyMatch(text, bannedWords[i], threshold)) return true;
+  }
+  return false;
+}
+
+// ========== 安全检测图片（Google Cloud Vision API） ==========
+function analyzePhotoSafeSearch(file_id) {
+  let fileResponse = sendRequest("getFile", { file_id: file_id });
+  if (!fileResponse || !fileResponse.ok) {
+    Logger.log("获取图片文件失败");
+    return false;
+  }
+  let filePath = fileResponse.result.file_path;
+  let fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${filePath}`;
+  let imageResponse = UrlFetchApp.fetch(fileUrl);
+  let imageBlob = imageResponse.getBlob();
+  let base64Image = Utilities.base64Encode(imageBlob.getBytes());
+  let visionApiKey = 'YOUR_VISION_API_KEY'; // 请替换为您的Google Vision API密钥
+  let visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`;
+  let requestPayload = {
+    requests: [{
+      image: { content: base64Image },
+      features: [{ type: "SAFE_SEARCH_DETECTION" }]
+    }]
+  };
+  let visionOptions = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(requestPayload)
+  };
+  try {
+    let visionResponse = UrlFetchApp.fetch(visionUrl, visionOptions);
+    let visionResult = JSON.parse(visionResponse.getContentText());
+    if (visionResult.responses && visionResult.responses[0] && visionResult.responses[0].safeSearchAnnotation) {
+      let safeSearch = visionResult.responses[0].safeSearchAnnotation;
+      if (safeSearch.adult === "VERY_LIKELY" || safeSearch.adult === "LIKELY" ||
+          safeSearch.violence === "VERY_LIKELY" || safeSearch.violence === "LIKELY" ||
+          safeSearch.racy === "VERY_LIKELY" || safeSearch.racy === "LIKELY") {
+        Logger.log("检测到违规图片");
+        return true;
+      }
+    }
+  } catch (err) {
+    Logger.log("analyzePhotoSafeSearch 错误: " + err.toString());
+  }
+  return false;
+}
+
+// ========== 菜单及设置面板 ==========
+function sendMenu(chatId) {
+  sendMessage(chatId, "请选择一个选项：", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "按钮1", callback_data: "按钮1" }, { text: "按钮2", callback_data: "按钮2" }],
+        [{ text: "按钮3", callback_data: "按钮3" }, { text: "按钮4", callback_data: "按钮4" }],
+        [{ text: "按钮5", callback_data: "按钮5" }, { text: "按钮6", callback_data: "按钮6" }],
+        [{ text: "返回主菜单", callback_data: "返回主菜单" }]
+      ]
+    }
+  });
+  sendKeyboard(chatId);
+}
+
+function sendSettingsMenu(chatId) {
+  sendMessage(chatId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function buildSettingsMarkup() {
+  return {
+    inline_keyboard: [
+      [
+        { text: `违规检测: ${getFilterEnabled() ? "✅" : "❌"}`, callback_data: "toggle_filter" },
+        { text: `模糊违禁词: ${getFuzzyMatchEnabled() ? "✅" : "❌"}`, callback_data: "toggle_fuzzy" }
+      ],
+      [
+        { text: `转发检测: ${getForwardFilterEnabled() ? "✅" : "❌"}`, callback_data: "toggle_forward_filter" },
+        { text: `色情媒体: ${getPornMediaFilterEnabled() ? "✅" : "❌"}`, callback_data: "toggle_porn_media" }
+      ],
+      [
+        { text: `欢迎消息: ${getWelcomeEnabled() ? "✅" : "❌"}`, callback_data: "toggle_welcome" },
+        { text: "设置欢迎消息", callback_data: "manage_welcome" }
+      ],
+      [
+        { text: "关键词回复", callback_data: "manage_replies" },
+        { text: "模糊违禁词管理", callback_data: "manage_fuzzy" }
+      ],
+      [
+        { text: `禁言时长: ${formatDuration(getMuteDuration())}`, callback_data: "cycle_mute_duration" },
+        { text: `警告次数: ${getWarningLimit()}`, callback_data: "cycle_warning_limit" }
+      ],
+      [
+        { text: `处罚提示: ${getPunishmentAutoDeleteDuration()}秒`, callback_data: "cycle_punishment_auto_delete" },
+        { text: `群提示: ${getEventAutoDeleteDuration()}秒`, callback_data: "cycle_event_auto_delete" }
+      ],
+      [
+        { text: `豁免管理员: ${getAdminExempt() ? "✅" : "❌"}`, callback_data: "toggle_admin_exempt" },
+        { text: `选择题验证: ${getQuizVerificationEnabled() ? "✅" : "❌"}`, callback_data: "toggle_quiz_verification" }
+      ],
+      [
+        { text: `欢迎自动删除: ${getWelcomeAutoDeleteDuration()}秒`, callback_data: "cycle_welcome_autodelete" },
+        { text: `回复自动删除: ${getReplyAutoDeleteDuration()}秒`, callback_data: "cycle_reply_autodelete" }
+      ],
+      [
+        { text: `置顶删除: ${getPinAutoDeleteEnabled() ? "✅" : "❌"}`, callback_data: "toggle_pin_delete" },
+        { text: `夜间模式: ${getNightModeEnabled() ? "✅" : "❌"}`, callback_data: "toggle_night_mode" }
+      ],
+      [
+        { text: `仅图片网址夜间: ${getOnlyMediaLinkNightModeEnabled() ? "✅" : "❌"}`, callback_data: "toggle_only_media_link_night" },
+        { text: "我的群组", callback_data: "show_groups" }
+      ],
+      [
+        { text: "白名单管理", callback_data: "manage_whitelist" },
+        { text: "返回主菜单", callback_data: "返回主菜单" }
+      ]
+    ]
+  };
+}
+
+function sendKeyboard(chatId) {
+  sendMessage(chatId, "请选择输入选项：", {
+    reply_markup: {
+      keyboard: [
+        ["选项A", "选项B"],
+        ["选项C", "选项D"],
+        ["选项E", "返回主菜单"]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  });
+}
+
+// ========== 关键词回复管理菜单 ==========
+function sendReplySettingsMenu(chatId) {
+  const customReplies = getCustomReplies();
+  let replyText = "【当前关键词回复列表】\n";
+  for (let key in customReplies) {
+    if (customReplies.hasOwnProperty(key)) {
+      let r = customReplies[key];
+      replyText += `\n关键词：${key}\n类型：${r.type}\n内容：${r.type === "text" ? r.content : r.media}\n`;
+    }
+  }
+  replyText += "\n管理提示：\n- 添加/更新：/addreply 关键词|类型|内容[|说明]\n- 删除：/delreply 关键词\n（类型可为 text, photo, video, document）";
+  let markup = {
+    inline_keyboard: [
+      [{ text: "刷新列表", callback_data: "refresh_replies" }],
+      [{ text: "返回设置面板", callback_data: "back_settings" }]
+    ]
+  };
+  sendMessage(chatId, replyText, { reply_markup: markup });
+}
+
+// ========== 自定义模糊违禁词管理菜单 ==========
+function sendFuzzySettingsMenu(chatId) {
+  const fuzzyWords = getFuzzyBannedWords();
+  let replyText = "【当前自定义模糊违禁词列表】\n";
+  if (fuzzyWords.length === 0) {
+    replyText += "暂无自定义模糊违禁词。\n";
+  } else {
+    fuzzyWords.forEach(word => { replyText += `- ${word}\n`; });
+  }
+  replyText += "\n管理提示：\n点击下方按钮可删除对应的违禁词，或点击【添加模糊违禁词】按钮添加新违禁词。";
+  let inlineKeyboard = [];
+  if (fuzzyWords.length > 0) {
+    fuzzyWords.forEach(word => {
+      inlineKeyboard.push([{ text: `删除【${word}】`, callback_data: "del_fuzzy:" + encodeURIComponent(word) }]);
+    });
+  }
+  inlineKeyboard.push([{ text: "添加模糊违禁词", callback_data: "add_fuzzy" }]);
+  inlineKeyboard.push([{ text: "刷新列表", callback_data: "manage_fuzzy" }]);
+  inlineKeyboard.push([{ text: "返回设置面板", callback_data: "back_settings" }]);
+  sendMessage(chatId, replyText, { reply_markup: { inline_keyboard: inlineKeyboard } });
+}
+
+// ========== 欢迎消息设置菜单 ==========
+function sendWelcomeSettingsMenu(chatId) {
+  let welcome = getWelcomeMessage();
+  let msg = "【当前欢迎消息设置】\n";
+  msg += "类型: " + welcome.type + "\n";
+  if (welcome.type === "text") {
+    msg += "内容: " + welcome.content + "\n";
+  } else {
+    msg += "媒体: " + welcome.media + "\n";
+    msg += "说明: " + (welcome.caption || "") + "\n";
+  }
+  msg += "\n管理提示：\n点击【修改欢迎消息】按钮直接发送新的配置。\n格式：类型|内容[|说明]\n例如：\ntext|欢迎 {names} 加入群聊！\n或 photo|https://example.com/welcome.jpg|欢迎 {names} 加入群聊！";
+  let markup = {
+    inline_keyboard: [
+      [{ text: "修改欢迎消息", callback_data: "edit_welcome" }],
+      [{ text: "返回设置面板", callback_data: "back_settings" }]
+    ]
+  };
+  sendMessage(chatId, msg, { reply_markup: markup });
+}
+
+// ========== 白名单管理菜单 ==========
+function sendWhitelistSettingsMenu(chatId) {
+  const whitelist = getWhitelist();
+  let replyText = "【当前白名单列表】\n";
+  if (whitelist.length === 0) {
+    replyText += "暂无白名单用户。\n";
+  } else {
+    whitelist.forEach(userId => { replyText += `- ${userId}\n`; });
+  }
+  replyText += "\n管理提示：\n- 添加：/addwhitelist 用户ID\n- 删除：点击下方按钮或使用 /delwhitelist 用户ID";
+  let inlineKeyboard = [];
+  if (whitelist.length > 0) {
+    whitelist.forEach(userId => {
+      inlineKeyboard.push([{ text: `删除【${userId}】`, callback_data: "del_whitelist:" + userId }]);
+    });
+  }
+  inlineKeyboard.push([{ text: "刷新列表", callback_data: "manage_whitelist" }]);
+  inlineKeyboard.push([{ text: "返回设置面板", callback_data: "back_settings" }]);
+  sendMessage(chatId, replyText, { reply_markup: { inline_keyboard: inlineKeyboard } });
+}
+
+// ========== 按钮回调处理 ==========
+function handleCallback(query) {
+  sendRequest("answerCallbackQuery", { callback_query_id: query.id });
+  const chatId = query.message.chat.id;
+  const messageId = query.message.message_id;
+  const data = query.data;
+  const senderId = query.from.id;
+
+  if (senderId.toString() !== BOT_CREATOR_ID && (
+      data === "toggle_filter" || data === "toggle_fuzzy" || data === "toggle_forward_filter" ||
+      data === "toggle_porn_media" || data === "toggle_welcome" || data === "manage_welcome" ||
+      data === "toggle_admin_exempt" || data === "toggle_quiz_verification" || data === "cycle_welcome_autodelete" ||
+      data === "cycle_reply_autodelete" || data === "cycle_mute_duration" || data === "cycle_warning_limit" ||
+      data === "cycle_punishment_auto_delete" || data === "cycle_event_auto_delete" || data === "manage_replies" ||
+      data === "manage_fuzzy" || data === "edit_welcome" || data === "add_fuzzy" || data.startsWith("del_fuzzy:") ||
+      data === "refresh_replies" || data === "back_settings" || data === "toggle_pin_delete" ||
+      data === "toggle_night_mode" || data === "toggle_only_media_link_night" || data === "manage_whitelist" ||
+      data.startsWith("del_whitelist:")
+  )) {
+    sendMessage(chatId, "只有机器人创建者可以操作设置面板。");
+    return;
+  }
+
+  if (data.startsWith("quiz_")) {
+    const [_, chatIdStr, userIdStr, answerIndex] = data.split("_");
+    const userId = parseInt(userIdStr);
+    const quizKey = "QUIZ_VERIFY_" + chatId + "_" + userId;
+    const correctAnswer = CacheService.getScriptCache().get(quizKey);
+    const msgKey = quizKey + "_MSG";
+    const msgId = CacheService.getScriptCache().get(msgKey);
+
+    if (msgId) deleteMessage(chatId, msgId);
+
+    if (correctAnswer) {
+      const options = ["苹果", "香蕉", "橙子", "葡萄"];
+      const selectedAnswer = options[parseInt(answerIndex)];
+      if (selectedAnswer === correctAnswer) {
+        sendCustomWelcome(chatId, [{ id: userId, first_name: query.from.first_name }]);
+        CacheService.getScriptCache().remove(quizKey);
+        CacheService.getScriptCache().remove(msgKey);
+      } else {
+        kickUser(chatId, userId);
+        sendAutoDeleteMessage(chatId, `用户 ${query.from.first_name} 回答错误，已被移出群聊`, 10);
+        CacheService.getScriptCache().remove(quizKey);
+        CacheService.getScriptCache().remove(msgKey);
+      }
+    } else {
+      sendMessage(chatId, "验证已超时或无效");
+    }
+    return;
+  }
+
+  if (data === "manage_welcome") {
+    sendWelcomeSettingsMenu(chatId);
+  } else if (data === "toggle_filter") {
+    setSetting("FILTER_ENABLED", !getFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_fuzzy") {
+    setSetting("FUZZY_MATCH_ENABLED", !getFuzzyMatchEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_forward_filter") {
+    setSetting("FORWARD_FILTER_ENABLED", !getForwardFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_porn_media") {
+    setSetting("PORN_MEDIA_FILTER_ENABLED", !getPornMediaFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_welcome") {
+    setWelcomeEnabled(!getWelcomeEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_admin_exempt") {
+    setAdminExempt(!getAdminExempt());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "toggle_quiz_verification") {
+    setQuizVerificationEnabled(!getQuizVerificationEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  } else if (data === "cycle_welcome_autodelete") {
+    cycleWelcomeAutoDelete(chatId, messageId);
+  } else if (data === "cycle_reply_autodelete") {
+    cycleReplyAutoDelete(chatId, messageId);
+  } else if (data === "cycle_mute_duration") {
+    cycleMuteDuration(chatId, messageId);
+  } else if (data === "cycle_warning_limit") {
+    cycleWarningLimit(chatId, messageId);
+  } else if (data === "cycle_punishment_auto_delete") {
+    cyclePunishmentAutoDelete(chatId, messageId);
+  } else if (data === "cycle_event_auto_delete") {
+    cycleEventAutoDelete(chatId, messageId);
+  } else if (data === "manage_replies") {
+    sendReplySettingsMenu(chatId);
+  } else if (data === "manage_fuzzy") {
+    sendFuzzySettingsMenu(chatId);
+  } else if (data === "manage_whitelist") {
+    sendWhitelistSettingsMenu(chatId);
+  } else if (data === "edit_welcome") {
+    const cache = CacheService.getScriptCache();
+    cache.put("TEMP_WELCOME_" + query.from.id, chatId.toString(), 300);
+    sendMessage(chatId, "请直接发送新的欢迎消息配置。\n格式：类型|内容[|说明]\n例如：\ntext|欢迎 {names} 加入群聊！\n或 photo|https://example.com/welcome.jpg|欢迎 {names} 加入群聊！");
+  } else if (data === "add_fuzzy") {
+    const cache = CacheService.getScriptCache();
+    cache.put("TEMP_FUZZY_" + query.from.id, chatId.toString(), 300);
+    sendMessage(chatId, "请直接发送要添加的模糊违禁词。");
+  } else if (data.startsWith("del_fuzzy:")) {
+    let wordEncoded = data.substring("del_fuzzy:".length);
+    let word = decodeURIComponent(wordEncoded);
+    let fuzzyWords = getFuzzyBannedWords();
+    let index = fuzzyWords.indexOf(word);
+    if (index !== -1) {
+      fuzzyWords.splice(index, 1);
+      setFuzzyBannedWords(fuzzyWords);
+      sendMessage(chatId, `自定义模糊违禁词 "${word}" 已删除`);
+    } else {
+      sendMessage(chatId, `自定义模糊违禁词 "${word}" 不存在`);
+    }
+    sendFuzzySettingsMenu(chatId);
+  } else if (data.startsWith("del_whitelist:")) {
+    let userId = data.substring("del_whitelist:".length);
+    let whitelist = getWhitelist();
+    let index = whitelist.indexOf(userId);
+    if (index !== -1) {
+      whitelist.splice(index, 1);
+      setWhitelist(whitelist);
+      sendMessage(chatId, `用户 ${userId} 已从白名单移除`);
+    } else {
+      sendMessage(chatId, `用户 ${userId} 不在白名单中`);
+    }
+    sendWhitelistSettingsMenu(chatId);
+  } else if (data === "refresh_replies") {
+    sendReplySettingsMenu(chatId);
+  } else if (data === "back_settings") {
+    sendSettingsMenu(chatId);
+  } else if (data === "show_groups") {
+    showGroupList(chatId);
+  } else if (data === "toggle_pin_delete") {
+    let newState = !getPinAutoDeleteEnabled();
+    setPinAutoDeleteEnabled(newState);
+    setupPinAutoDeleteTrigger();
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `置顶消息自动删除已${newState ? "启用" : "关闭"}，间隔 ${getPinAutoDeleteInterval()} 分钟。`);
+  } else if (data === "toggle_night_mode") {
+    let newState = !getNightModeEnabled();
+    setNightModeEnabled(newState);
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `夜间模式已${newState ? "启用" : "关闭"}，时间段 ${getNightModeStart()} - ${getNightModeEnd()} (时区: ${getTimezone()})。`);
+  } else if (data === "toggle_only_media_link_night") {
+    let newState = !getOnlyMediaLinkNightModeEnabled();
+    setOnlyMediaLinkNightModeEnabled(newState);
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `仅图片与网址夜间模式已${newState ? "启用" : "关闭"}，时间段 ${getNightModeStart()} - ${getNightModeEnd()} (时区: ${getTimezone()})。`);
+  } else {
+    const customReplies = getCustomReplies();
+    if (customReplies[data]) {
+      sendCustomReply(chatId, customReplies[data]);
+    } else {
+      sendMessage(chatId, "未找到自定义回复: " + data);
+    }
+  }
+}
+
+function cycleMuteDuration(chatId, messageId) {
+  const durations = [3600, 21600, 86400];
+  let current = getMuteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setSetting("MUTE_DURATION", newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleWarningLimit(chatId, messageId) {
+  const limits = [1, 2, 3, 5];
+  let current = getWarningLimit();
+  let idx = limits.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newLimit = limits[(idx + 1) % limits.length];
+  setSetting("WARNING_LIMIT", newLimit);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cyclePunishmentAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getPunishmentAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setSetting("PUNISHMENT_AUTO_DELETE", newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleEventAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getEventAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setSetting("EVENT_AUTO_DELETE", newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function formatDuration(seconds) {
+  return (seconds / 3600) + "小时";
+}
+
+// ========== 管理员检查 ==========
+function isAdmin(chatId, userId) {
+  if (chatId > 0) return true; // 私聊视为管理员
+  let cache = CacheService.getScriptCache();
+  let key = `ADMIN_${chatId}_${userId}`;
+  let cached = cache.get(key);
+  if (cached !== null) return cached === "true";
+  try {
+    let response = UrlFetchApp.fetch(`${BASE_URL}getChatMember?chat_id=${chatId}&user_id=${userId}`);
+    let data = JSON.parse(response.getContentText());
+    let isAdmin = data.ok && (data.result.status === "creator" || data.result.status === "administrator");
+    cache.put(key, isAdmin.toString(), 3600);
+    return isAdmin;
+  } catch (error) {
+    Logger.log("isAdmin 检查错误: " + error.toString());
+    return false; // 出错时默认非管理员，确保验证触发
+  }
+}
+
+// ========== 消息发送与编辑 ==========
+function sendRequest(method, payload) {
+  try {
+    let response = UrlFetchApp.fetch(`${BASE_URL}${method}`, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    let result = JSON.parse(response.getContentText());
+    if (!result.ok) {
+      Logger.log(`Error in ${method}: ${result.description}`);
+      return null;
+    }
+    return result;
+  } catch (err) {
+    Logger.log(`Exception in ${method}: ${err.toString()}`);
+    return null;
+  }
+}
+
+function sendMessage(chatId, text, options = {}) {
+  return sendRequest("sendMessage", { chat_id: chatId, text: text, ...options });
+}
+
+function sendPhoto(chatId, photoUrl, options = {}) {
+  return sendRequest("sendPhoto", { chat_id: chatId, photo: photoUrl, ...options });
+}
+
+function sendVideo(chatId, videoUrl, options = {}) {
+  return sendRequest("sendVideo", { chat_id: chatId, video: videoUrl, ...options });
+}
+
+function sendDocument(chatId, documentUrl, options = {}) {
+  return sendRequest("sendDocument", { chat_id: chatId, document: documentUrl, ...options });
+}
+
+function editMessage(chatId, messageId, text, options = {}) {
+  sendRequest("editMessageText", { chat_id: chatId, message_id: messageId, text: text, ...options });
+}
+
+// ========== Webhook 设置 ==========
+function setWebhook() {
+  const url = `${BASE_URL}setWebhook`;
+  const params = {
+    url: SCRIPT_URL,
+    allowed_updates: JSON.stringify(["message", "chat_member", "callback_query"])
+  };
+  const options = {
+    method: "post",
+    payload: params,
+    muteHttpExceptions: true
+  };
+  const response = UrlFetchApp.fetch(url, options);
+  const result = JSON.parse(response.getContentText());
+  if (result.ok) {
+    Logger.log("Webhook set successfully");
+  } else {
+    Logger.log("Failed to set webhook: " + result.description);
+  }
+}
