@@ -1,0 +1,2204 @@
+// ========== 基本配置 ==========
+const TOKEN = 'YOUR_BOT_TOKEN'; // 请替换为您的机器人 Token
+const BASE_URL = `https://api.telegram.org/bot${TOKEN}/`;
+const SCRIPT_URL = 'YOUR_SCRIPT_DEPLOYMENT_URL'; // 请替换为您的 Google Apps Script 部署 URL
+const BOT_ID = 'YOUR_BOT_ID'; // 请替换为您的机器人 ID（数字格式）
+const CREATOR_ID = '123456789'; // 请替换为您的 Telegram ID
+
+// ========== 持久化存储 ==========
+const USER_LAST_MESSAGE = {};
+const MESSAGE_LIMIT = 5; // 1分钟内消息上限
+const TIME_WINDOW = 60 * 1000; // 1分钟（毫秒）
+
+// ========== 创建者验证函数 ==========
+function isCreator(userId) {
+  return userId.toString() === CREATOR_ID.toString();
+}
+
+// ========== 默认自定义回复 ==========
+const DEFAULT_CUSTOM_REPLIES = {
+  "按钮1": { type: "text", content: "你点击了按钮1，这是自定义文本回复！", url: "" },
+  "按钮2": { type: "photo", media: "https://via.placeholder.com/300", caption: "这是一张图片示例", url: "https://example.com/details" },
+  "按钮3": { type: "video", media: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4", caption: "这是一个视频示例", url: "https://example.com/video" },
+  "按钮4": { type: "document", media: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf", caption: "这是一个文档示例", url: "https://example.com/document" },
+  "按钮5": { type: "text", content: "你点击了按钮5，这是带链接按钮的回复！", url: "https://example.com" },
+  "按钮6": { type: "text", content: "你点击了按钮6，这是自定义回复示例！", url: "" },
+  "返回主菜单": { type: "text", content: "你已返回主菜单，请选择新的选项。", url: "" },
+  "选项A": { type: "text", content: "你选择了选项A，这是自定义回复！", url: "" },
+  "选项B": { type: "text", content: "选项B已选中，请查看详细内容。", url: "" },
+  "选项C": { type: "text", content: "你点击了选项C，系统正在处理...", url: "" },
+  "选项D": { type: "text", content: "你选择了选项D，这是特别信息。", url: "" },
+  "选项E": { type: "text", content: "选项E被选中，系统正在处理。", url: "" }
+};
+
+// ========== 默认欢迎消息（支持按钮） ==========
+const DEFAULT_WELCOME_MESSAGE = { type: "text", content: "欢迎 {names} 加入群聊！", buttons: [] };
+
+// ========== 属性存储函数 ==========
+function getCustomReplies() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("CUSTOM_REPLIES");
+  if (!data) {
+    setCustomReplies(DEFAULT_CUSTOM_REPLIES);
+    return DEFAULT_CUSTOM_REPLIES;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 CUSTOM_REPLIES 错误：" + err.toString());
+    return DEFAULT_CUSTOM_REPLIES;
+  }
+}
+
+function setCustomReplies(obj) {
+  let jsonStr = JSON.stringify(obj);
+  if (jsonStr.length > 9 * 1024) throw new Error("数据超出 PropertiesService 单条限制 (9KB)");
+  PropertiesService.getScriptProperties().setProperty("CUSTOM_REPLIES", jsonStr);
+}
+
+function getWelcomeMessage() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("WELCOME_MESSAGE");
+  if (!data) {
+    setWelcomeMessage(DEFAULT_WELCOME_MESSAGE);
+    return DEFAULT_WELCOME_MESSAGE;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 WELCOME_MESSAGE 错误：" + err.toString());
+    return DEFAULT_WELCOME_MESSAGE;
+  }
+}
+
+function setWelcomeMessage(obj) {
+  PropertiesService.getScriptProperties().setProperty("WELCOME_MESSAGE", JSON.stringify(obj));
+}
+
+function getSetting(key, defaultValue) {
+  const props = PropertiesService.getScriptProperties();
+  let value = props.getProperty(key);
+  if (value === null) return defaultValue;
+  if (typeof defaultValue === "boolean") return value === "true";
+  if (typeof defaultValue === "number") return parseInt(value, 10);
+  return value;
+}
+
+function setSetting(key, value) {
+  PropertiesService.getScriptProperties().setProperty(key, value.toString());
+}
+
+// **具体设置项**
+function getFilterEnabled() { return getSetting("FILTER_ENABLED", true); }
+function setFilterEnabled(val) { setSetting("FILTER_ENABLED", val); }
+function getFuzzyMatchEnabled() { return getSetting("FUZZY_MATCH_ENABLED", true); }
+function setFuzzyMatchEnabled(val) { setSetting("FUZZY_MATCH_ENABLED", val); }
+function getForwardFilterEnabled() { return getSetting("FORWARD_FILTER_ENABLED", true); }
+function setForwardFilterEnabled(val) { setSetting("FORWARD_FILTER_ENABLED", val); }
+function getPornMediaFilterEnabled() { return getSetting("PORN_MEDIA_FILTER_ENABLED", true); }
+function setPornMediaFilterEnabled(val) { setSetting("PORN_MEDIA_FILTER_ENABLED", val); }
+function getWelcomeEnabled() { return getSetting("WELCOME_ENABLED", true); }
+function setWelcomeEnabled(val) { setSetting("WELCOME_ENABLED", val); }
+function getAdminExempt() { return getSetting("ADMIN_EXEMPT", true); }
+function setAdminExempt(val) { setSetting("ADMIN_EXEMPT", val); }
+function getMathVerificationEnabled() { return getSetting("MATH_VERIFICATION_ENABLED", true); }
+function setMathVerificationEnabled(val) { setSetting("MATH_VERIFICATION_ENABLED", val); }
+function getMuteDuration() { return getSetting("MUTE_DURATION", 3600); }
+function setMuteDuration(val) { setSetting("MUTE_DURATION", val); }
+function getWarningLimit() { return getSetting("WARNING_LIMIT", 3); }
+function setWarningLimit(val) { setSetting("WARNING_LIMIT", val); }
+function getPunishmentAutoDeleteDuration() { return getSetting("PUNISHMENT_AUTO_DELETE", 10); }
+function setPunishmentAutoDeleteDuration(val) { setSetting("PUNISHMENT_AUTO_DELETE", val); }
+function getEventAutoDeleteDuration() { return getSetting("EVENT_AUTO_DELETE", 10); }
+function setEventAutoDeleteDuration(val) { setSetting("EVENT_AUTO_DELETE", val); }
+function getWelcomeAutoDeleteDuration() { return getSetting("WELCOME_AUTO_DELETE", 0); }
+function setWelcomeAutoDeleteDuration(val) { setSetting("WELCOME_AUTO_DELETE", val); }
+function getReplyAutoDeleteDuration() { return getSetting("REPLY_AUTO_DELETE", 0); }
+function setReplyAutoDeleteDuration(val) { setSetting("REPLY_AUTO_DELETE", val); }
+function getPinAutoDeleteEnabled() { return getSetting("PIN_AUTO_DELETE_ENABLED", false); }
+function setPinAutoDeleteEnabled(val) { setSetting("PIN_AUTO_DELETE_ENABLED", val); }
+function getPinAutoDeleteInterval() { return getSetting("PIN_AUTO_DELETE_INTERVAL", 60); }
+function setPinAutoDeleteInterval(val) { setSetting("PIN_AUTO_DELETE_INTERVAL", val); }
+function getNightModeEnabled() { return getSetting("NIGHT_MODE_ENABLED", false); }
+function setNightModeEnabled(val) { setSetting("NIGHT_MODE_ENABLED", val); }
+function getNightModeStart() { return getSetting("NIGHT_MODE_START", "22:00"); }
+function setNightModeStart(val) { setSetting("NIGHT_MODE_START", val); }
+function getNightModeEnd() { return getSetting("NIGHT_MODE_END", "07:00"); }
+function setNightModeEnd(val) { setSetting("NIGHT_MODE_END", val); }
+function getNightModeOffset() { return getSetting("NIGHT_MODE_OFFSET", 8); }
+function setNightModeOffset(val) { setSetting("NIGHT_MODE_OFFSET", val); }
+function getDeleteInactiveEnabled() { return getSetting("DELETE_INACTIVE_ENABLED", false); }
+function setDeleteInactiveEnabled(val) { setSetting("DELETE_INACTIVE_ENABLED", val); }
+
+// ========== 固定配置 ==========
+const SPAM_KEYWORDS = ["广告", "免费", "推广", "投资", "赚钱", "优惠"];
+const PORN_KEYWORDS = ["裸露", "成人", "色情", "性爱", "激情"];
+const LINK_PATTERN = /(https?:\/\/|www\.)\S+/i;
+const FUZZY_THRESHOLD = 0.5;
+
+// ========== 自定义模糊违禁词存取 ==========
+function getFuzzyBannedWords() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("FUZZY_BANNED_WORDS");
+  if (!data) {
+    const defaultWords = ["色情", "赌博", "诈骗"];
+    setFuzzyBannedWords(defaultWords);
+    return defaultWords;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 FUZZY_BANNED_WORDS 错误：" + err.toString());
+    return [];
+  }
+}
+
+function setFuzzyBannedWords(words) {
+  let jsonStr = JSON.stringify(words);
+  if (jsonStr.length > 9 * 1024) throw new Error("模糊违禁词数据超出 PropertiesService 单条限制 (9KB)");
+  PropertiesService.getScriptProperties().setProperty("FUZZY_BANNED_WORDS", jsonStr);
+}
+
+// ========== 警告次数存取 ==========
+function getWarningCount(chatId, userId) {
+  let key = "warn_" + chatId + "_" + userId;
+  let count = PropertiesService.getScriptProperties().getProperty(key);
+  return count ? parseInt(count, 10) : 0;
+}
+
+function setWarningCount(chatId, userId, count) {
+  let key = "warn_" + chatId + "_" + userId;
+  PropertiesService.getScriptProperties().setProperty(key, count.toString());
+}
+
+function deleteWarningCount(chatId, userId) {
+  let key = "warn_" + chatId + "_" + userId;
+  PropertiesService.getScriptProperties().deleteProperty(key);
+}
+
+// ========== 记录群组 ==========
+function recordGroup(chatId, groupTitle) {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  if (!groups[chatId]) {
+    groups[chatId] = groupTitle;
+    props.setProperty("GROUPS", JSON.stringify(groups));
+  }
+}
+
+function showGroupList(chatId) {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  let text = "机器人所在群组列表：\n";
+  for (let id in groups) {
+    text += `群ID: ${id}, 名称: ${groups[id]}\n`;
+  }
+  sendMessage(chatId, text);
+}
+
+// ========== 自动删除时间循环函数 ==========
+function cycleWelcomeAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getWelcomeAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setWelcomeAutoDeleteDuration(newDuration);
+  Logger.log("更新欢迎消息自动删除时长，从 " + current + " 秒到 " + newDuration + " 秒");
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleReplyAutoDelete(chatId, messageId) {
+  const durations = [0, 60, 120, 300, 600]; // 0, 1, 2, 5, 10 分钟（单位：秒）
+  let current = getReplyAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setReplyAutoDeleteDuration(newDuration);
+  Logger.log("更新关键词回复自动删除时长，从 " + current + " 秒到 " + newDuration + " 秒");
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+// ========== 置顶消息自动删除 ==========
+function deletePinnedMessages() {
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  Logger.log(`开始检查置顶消息，群组列表: ${JSON.stringify(groups)}`);
+  
+  for (let chatId in groups) {
+    try {
+      let pinnedMessage = getPinnedMessage(chatId);
+      if (pinnedMessage) {
+        let result = deleteMessage(chatId, pinnedMessage.message_id);
+        if (result) {
+          Logger.log(`成功删除群 ${chatId} 的置顶消息 ${pinnedMessage.message_id}`);
+        } else {
+          Logger.log(`删除群 ${chatId} 的置顶消息 ${pinnedMessage.message_id} 失败，可能是权限不足或消息已不存在`);
+        }
+      } else {
+        Logger.log(`群 ${chatId} 无置顶消息或获取失败`);
+      }
+    } catch (err) {
+      Logger.log(`处理群 ${chatId} 的置顶消息时出错: ${err.toString()}`);
+    }
+  }
+}
+
+function getPinnedMessage(chatId) {
+  let response = sendRequest("getChat", { chat_id: chatId });
+  Logger.log(`获取群 ${chatId} 置顶消息响应: ${JSON.stringify(response)}`);
+  if (response && response.ok && response.result.pinned_message) {
+    return response.result.pinned_message;
+  }
+  return null;
+}
+
+function setupPinAutoDeleteTrigger() {
+  deleteTriggers("deletePinnedMessages");
+  if (getPinAutoDeleteEnabled()) {
+    let interval = getPinAutoDeleteInterval();
+    try {
+      ScriptApp.newTrigger("deletePinnedMessages")
+        .timeBased()
+        .everyMinutes(interval)
+        .create();
+      Logger.log(`置顶自动删除触发器已设置为每 ${interval} 分钟运行`);
+    } catch (err) {
+      Logger.log(`设置置顶自动删除触发器失败: ${err.toString()}`);
+    }
+  } else {
+    Logger.log("置顶自动删除已关闭，无需设置触发器");
+  }
+}
+
+function deleteTriggers(functionName) {
+  let triggers = ScriptApp.getProjectTriggers();
+  for (let trigger of triggers) {
+    if (trigger.getHandlerFunction() === functionName) {
+      ScriptApp.deleteTrigger(trigger);
+      Logger.log(`已删除触发器: ${functionName}`);
+    }
+  }
+}
+
+// ========== 夜间模式 ==========
+function isNightModeActive() {
+  if (!getNightModeEnabled()) return false;
+  let now = new Date();
+  let offsetHours = getNightModeOffset();
+  let localNow = new Date(now.getTime() + offsetHours * 3600 * 1000);
+  let start = parseTime(getNightModeStart(), offsetHours);
+  let end = parseTime(getNightModeEnd(), offsetHours);
+  let nowMinutes = localNow.getHours() * 60 + localNow.getMinutes();
+  let startMinutes = start.getHours() * 60 + start.getMinutes();
+  let endMinutes = end.getHours() * 60 + end.getMinutes();
+  if (startMinutes < endMinutes) return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+}
+
+function parseTime(timeStr, offsetHours) {
+  let [hours, minutes] = timeStr.split(":").map(Number);
+  let date = new Date();
+  date.setUTCHours(hours - offsetHours, minutes, 0, 0);
+  return date;
+}
+
+// ========== 未验证用户检查 ==========
+function checkUnverifiedUsers() {
+  const props = PropertiesService.getScriptProperties();
+  const now = Math.floor(Date.now() / 1000);
+  const allProps = props.getProperties();
+  Logger.log("开始检查未验证用户...");
+  for (let key in allProps) {
+    if (key.startsWith("JOIN_DATA_")) {
+      const dataStr = allProps[key];
+      const joinData = JSON.parse(dataStr);
+      const parts = key.split("_");
+      const chatId = parts[2];
+      const userId = parts[3];
+      if (now - joinData.time > 60) {
+        const verified = getVerifiedStatus(chatId, userId);
+        Logger.log(`检查用户 ${userId} 在群 ${chatId}: 加入时间=${joinData.time}, 当前时间=${now}, 已验证=${verified}`);
+        if (verified !== "true" && userId !== BOT_ID) {
+          let result = banUser(chatId, userId);
+          if (result) {
+            const firstName = joinData.firstName;
+            const mention = `<a href="tg://user?id=${userId}">${firstName}</a>`;
+            const muteMessage = `${mention} 由于未通过验证已被永久禁言，请联系群主 @CMKOW 解除禁言。`;
+            sendAutoDeleteMessage(chatId, muteMessage, 10, { parse_mode: "HTML" });
+            if (joinData.verificationMessageId) {
+              deleteMessage(chatId, joinData.verificationMessageId);
+            }
+          } else {
+            Logger.log(`禁言用户 ${userId} 在群 ${chatId} 失败，可能缺少权限`);
+          }
+          deleteJoinData(chatId, userId);
+          deleteVerifiedStatus(chatId, userId);
+          deleteMathVerifyAnswer(chatId, userId);
+        }
+      }
+    }
+  }
+  Logger.log("未验证用户检查完成");
+}
+
+// ========== 加入数据存取（新增 verificationMessageId） ==========
+function setJoinData(chatId, userId, time, firstName, verificationMessageId) {
+  const key = `JOIN_DATA_${chatId}_${userId}`;
+  const data = { time: time, firstName: firstName, verificationMessageId: verificationMessageId };
+  PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(data));
+}
+
+function getJoinData(chatId, userId) {
+  const key = `JOIN_DATA_${chatId}_${userId}`;
+  const dataStr = PropertiesService.getScriptProperties().getProperty(key);
+  return dataStr ? JSON.parse(dataStr) : null;
+}
+
+function deleteJoinData(chatId, userId) {
+  const key = `JOIN_DATA_${chatId}_${userId}`;
+  PropertiesService.getScriptProperties().deleteProperty(key);
+}
+
+// ========== 数学验证答案存取 ==========
+function setMathVerifyAnswer(chatId, userId, answer) {
+  const key = `MATH_VERIFY_${chatId}_${userId}`;
+  PropertiesService.getScriptProperties().setProperty(key, answer);
+}
+
+function getMathVerifyAnswer(chatId, userId) {
+  const key = `MATH_VERIFY_${chatId}_${userId}`;
+  return PropertiesService.getScriptProperties().getProperty(key);
+}
+
+function deleteMathVerifyAnswer(chatId, userId) {
+  const key = `MATH_VERIFY_${chatId}_${userId}`;
+  PropertiesService.getScriptProperties().deleteProperty(key);
+}
+
+// ========== 验证状态存取 ==========
+function setVerifiedStatus(chatId, userId, status) {
+  const key = `VERIFIED_${chatId}_${userId}`;
+  PropertiesService.getScriptProperties().setProperty(key, status);
+}
+
+function getVerifiedStatus(chatId, userId) {
+  const key = `VERIFIED_${chatId}_${userId}`;
+  return PropertiesService.getScriptProperties().getProperty(key);
+}
+
+function deleteVerifiedStatus(chatId, userId) {
+  const key = `VERIFIED_${chatId}_${userId}`;
+  PropertiesService.getScriptProperties().deleteProperty(key);
+}
+
+// ========== 垃圾短语存储 ==========
+function getSpamPhrases() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("SPAM_PHRASES");
+  if (!data) {
+    const defaultSpamPhrases = [
+      "打桩药 💊", "看资料 日2000+ 涞人", "点我头像简介入群", "学生 萝莉 少妇 应有尽有 尽在简介查看",
+      "合约跟单", "碎月🈷️", "淘宝刷量一单一接", "月入8oooo 招人做抖音小店洗资", "Gn/tv/tf/gv",
+      "🔥免费,无套路💻呦女💻日本女优❤️天上人间🎁奸淫🔥破处🎉萝莉"
+    ];
+    setSpamPhrases(defaultSpamPhrases);
+    return defaultSpamPhrases;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 SPAM_PHRASES 错误：" + err.toString());
+    return [];
+  }
+}
+
+function setSpamPhrases(phrases) {
+  PropertiesService.getScriptProperties().setProperty("SPAM_PHRASES", JSON.stringify(phrases));
+}
+
+function containsSpamPhrase(name, phrases) {
+  const lowerName = name.toLowerCase();
+  return phrases.some(phrase => lowerName.includes(phrase.toLowerCase()));
+}
+
+// ========== 踢出用户 ==========
+function kickUser(chatId, userId) {
+  sendRequest("banChatMember", { chat_id: chatId, user_id: userId });
+}
+
+// ========== 定时任务存储和管理 ==========
+function getScheduledTasks() {
+  const props = PropertiesService.getScriptProperties();
+  let data = props.getProperty("SCHEDULED_TASKS");
+  if (!data) return [];
+  try {
+    return JSON.parse(data);
+  } catch (err) {
+    Logger.log("解析 SCHEDULED_TASKS 错误：" + err.toString());
+    return [];
+  }
+}
+
+function setScheduledTasks(tasks) {
+  let jsonStr = JSON.stringify(tasks);
+  if (jsonStr.length > 9 * 1024) throw new Error("定时消息数据超出 PropertiesService 单条限制 (9KB)");
+  PropertiesService.getScriptProperties().setProperty("SCHEDULED_TASKS", jsonStr);
+}
+
+function addScheduledTask(task) {
+  let tasks = getScheduledTasks();
+  if (tasks.length >= 20) throw new Error("定时消息数量已达上限 (20条)");
+  task.id = Utilities.getUuid();
+  tasks.push(task);
+  setScheduledTasks(tasks);
+}
+
+function updateScheduledTask(id, updates) {
+  let tasks = getScheduledTasks();
+  let task = tasks.find(t => t.id === id);
+  if (!task) throw new Error("定时消息不存在");
+  Object.assign(task, updates);
+  setScheduledTasks(tasks);
+}
+
+function deleteScheduledTask(id) {
+  let tasks = getScheduledTasks();
+  let index = tasks.findIndex(t => t.id === id);
+  if (index !== -1) {
+    tasks.splice(index, 1);
+    setScheduledTasks(tasks);
+  }
+}
+
+function checkScheduledTasks() {
+  let now = new Date().getTime();
+  let tasks = getScheduledTasks();
+  let updated = false;
+  let result;
+
+  tasks.forEach(task => {
+    if (task.time <= now) {
+      if (task.lastMessageId) deleteMessage(task.chatId, task.lastMessageId);
+      let inlineKeyboard = task.buttons.map(btn => [{ text: btn.text, url: btn.url }]);
+      let options = { reply_markup: { inline_keyboard: inlineKeyboard } };
+      if (task.type !== "text" && task.caption) options.caption = task.caption;
+
+      switch (task.type) {
+        case "text":
+          result = sendMessage(task.chatId, task.content, options);
+          break;
+        case "photo":
+          result = sendPhoto(task.chatId, task.content, options);
+          break;
+        case "video":
+          result = sendVideo(task.chatId, task.content, options);
+          break;
+        case "document":
+          result = sendDocument(task.chatId, task.content, options);
+          break;
+        case "audio":
+          result = sendAudio(task.chatId, task.content, options);
+          break;
+        default:
+          Logger.log("未知的消息类型: " + task.type);
+          return;
+      }
+      if (result && result.ok && result.result && result.result.message_id) task.lastMessageId = result.result.message_id;
+      if (task.repeat !== "none") {
+        let nextTime = calculateNextTime(task.time, task.repeat);
+        task.time = nextTime;
+        updated = true;
+      } else {
+        deleteScheduledTask(task.id);
+        updated = true;
+      }
+    }
+  });
+  if (updated) setScheduledTasks(tasks);
+}
+
+function calculateNextTime(currentTime, repeat) {
+  let date = new Date(currentTime);
+  switch (repeat) {
+    case "hourly": date.setHours(date.getHours() + 1); break;
+    case "daily": date.setDate(date.getDate() + 1); break;
+    case "weekly": date.setDate(date.getDate() + 7); break;
+    case "monthly": date.setMonth(date.getMonth() + 1); break;
+    default: return currentTime;
+  }
+  return date.getTime();
+}
+
+function setupScheduledTaskTrigger() {
+  deleteTriggers("checkScheduledTasks");
+  ScriptApp.newTrigger("checkScheduledTasks").timeBased().everyMinutes(1).create();
+  Logger.log("定时任务触发器已设置为每分钟运行");
+}
+
+function sendTaskSetupMessage(chatId, step, taskData) {
+  let prompts = {
+    "chatId": "请发送目标群ID（例如 -123456789）",
+    "time": "请发送发送时间（格式：YYYY-MM-DD HH:MM:SS）",
+    "type": "请发送消息类型（text, photo, video, audio, document）",
+    "content": "请发送消息内容（对于text是文本，对于其他是媒体URL）",
+    "buttons": "请发送按钮文本和URL，用逗号分隔多个按钮（格式：文本1,URL1,文本2,URL2,...）",
+    "repeat": "请发送重复周期（none, hourly, daily, weekly, monthly）",
+    "caption": "请发送caption（可选，仅对非text类型有效，按 Enter 跳过）"
+  };
+  sendMessage(chatId, prompts[step]);
+  let cache = CacheService.getScriptCache();
+  cache.put("TASK_SETUP_" + chatId, JSON.stringify({ step: step, data: taskData }), 300);
+}
+
+// ========== 删除已销号用户 ==========
+function checkAndRemoveInactiveUsers() {
+  if (!getDeleteInactiveEnabled()) return;
+  const props = PropertiesService.getScriptProperties();
+  let groups = JSON.parse(props.getProperty("GROUPS") || "{}");
+  for (let chatId in groups) {
+    let members = getChatMembers(chatId);
+    if (members && members.length > 0) {
+      members.forEach(member => {
+        if (member.user.is_deleted) {
+          kickUser(chatId, member.user.id);
+          sendMessage(chatId, `已移除已销号用户 ${member.user.id}`);
+          Logger.log(`从群 ${chatId} 移除已销号用户 ${member.user.id}`);
+        }
+      });
+    } else {
+      Logger.log(`群 ${chatId} 无管理员数据或无法获取成员列表，仅能检测管理员的已销号状态`);
+    }
+  }
+  Logger.log("注意：当前实现仅检查管理员的已销号状态，因 Telegram API 限制无法自动检测所有成员");
+}
+
+function getChatMembers(chatId) {
+  let response = sendRequest("getChatAdministrators", { chat_id: chatId });
+  if (response && response.ok) return response.result;
+  return [];
+}
+
+function setupInactiveUserTrigger() {
+  deleteTriggers("checkAndRemoveInactiveUsers");
+  if (getDeleteInactiveEnabled()) {
+    try {
+      ScriptApp.newTrigger("checkAndRemoveInactiveUsers")
+        .timeBased()
+        .everyHours(24)
+        .create();
+      Logger.log("已销号用户检查触发器已设置为每天运行");
+    } catch (err) {
+      Logger.log(`设置已销号用户检查触发器失败: ${err.toString()}`);
+    }
+  }
+}
+
+// ========== 防止刷屏函数 ==========
+function checkAndHandleSpam(chatId, userId, timestamp, messageId) {
+  let timeKey = `MSG_TIMES_${chatId}_${userId}`;
+  let idKey = `MSG_IDS_${chatId}_${userId}`;
+  let props = PropertiesService.getScriptProperties();
+  let timesStr = props.getProperty(timeKey);
+  let times = timesStr ? JSON.parse(timesStr) : [];
+  let msgIdsStr = props.getProperty(idKey);
+  let msgIds = msgIdsStr ? JSON.parse(msgIdsStr) : [];
+
+  let now = timestamp;
+  times = times.filter(t => now - t < TIME_WINDOW);
+  times.push(now);
+  msgIds.push(messageId);
+
+  if (times.length > MESSAGE_LIMIT) {
+    msgIds.forEach(id => deleteMessage(chatId, id));
+    banUser(chatId, userId);
+    sendMessage(chatId, `用户 ${userId} 因刷屏被永久禁言。`);
+    props.deleteProperty(timeKey);
+    props.deleteProperty(idKey);
+  } else {
+    props.setProperty(timeKey, JSON.stringify(times));
+    props.setProperty(idKey, JSON.stringify(msgIds));
+  }
+}
+
+// ========== 清除用户操作缓存 ==========
+function clearUserOperations(senderId) {
+  let cache = CacheService.getScriptCache();
+  cache.remove("ADD_reply_" + senderId);
+  cache.remove("TEMP_FUZZY_" + senderId);
+  cache.remove("TEMP_WELCOME_" + senderId);
+  cache.remove("EDIT_WELCOME_" + senderId);
+  cache.remove("EDIT_TASK_" + senderId);
+  cache.remove("EDIT_TASK_CONTENT_" + senderId);
+}
+
+// ========== 主处理函数 ==========
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) return;
+    const update = JSON.parse(e.postData.contents);
+    if (update.callback_query) return handleCallback(update.callback_query);
+    if (update.chat_member) {
+      const chatMember = update.chat_member;
+      const user = chatMember.new_chat_member.user;
+      if (user.is_deleted && getDeleteInactiveEnabled()) {
+        kickUser(chatMember.chat.id, user.id);
+        sendMessage(chatMember.chat.id, `已删除已销号用户 ${user.id}`);
+      }
+      return handleChatMemberUpdate(update.chat_member);
+    }
+    if (!update.message) return;
+
+    const message = update.message;
+    const chatId = message.chat.id;
+    const senderId = message.from.id;
+    const text = message.text;
+    const message_id = message.message_id;
+    const timestamp = message.date * 1000;
+    Logger.log(`收到消息：chatId=${chatId}, senderId=${senderId}, text=${text}`);
+
+    if (message.pinned_message) {
+      deleteMessage(chatId, message_id);
+      Logger.log(`删除系统置顶消息通知: chatId=${chatId}, messageId=${message_id}`);
+    }
+
+    if (chatId < 0) {
+      recordGroup(chatId, message.chat.title || "未知群组");
+      checkAndHandleSpam(chatId, senderId, timestamp, message_id);
+    }
+    let isSenderAdmin = isAdmin(chatId, senderId);
+
+    if (message.entities) {
+      const firstEntity = message.entities[0];
+      if (firstEntity.type === "bot_command" && firstEntity.offset === 0) {
+        const command = text.substring(firstEntity.offset, firstEntity.offset + firstEntity.length);
+        const commandName = command.split("@")[0];
+        if (commandName === "/start") return sendMenu(chatId);
+        else if (commandName === "/help") return sendHelpMessage(chatId);
+        else if (commandName === "/settings") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          return sendSettingsMenu(chatId);
+        }
+        else if (commandName === "/ban") {
+          if (!isSenderAdmin) {
+            sendMessage(chatId, "❌ 只有管理员可以使用该命令");
+            return;
+          }
+          let targetUserId;
+          if (message.reply_to_message && message.reply_to_message.from) {
+            targetUserId = message.reply_to_message.from.id;
+          } else {
+            let parts = text.split(" ");
+            if (parts.length < 2) {
+              sendMessage(chatId, "请回复要禁言的用户消息，或者使用格式：/ban 用户ID");
+              return;
+            }
+            targetUserId = parts[1].trim();
+          }
+          if (targetUserId === BOT_ID) {
+            sendMessage(chatId, "❌ 不能禁言机器人");
+            return;
+          }
+          let result = banUser(chatId, targetUserId);
+          if (result) {
+            sendMessage(chatId, `用户 ${targetUserId} 已被永久禁言`);
+          } else {
+            sendMessage(chatId, `禁言用户 ${targetUserId} 失败，可能缺少权限`);
+          }
+          return;
+        }
+        else if (commandName === "/myid") {
+          sendMessage(chatId, `您的用户ID是：${senderId}`);
+          return;
+        }
+        else if (commandName === "/addscheduledmsg") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          let params = text.substring(16).trim().split("|");
+          if (params.length < 7) {
+            sendMessage(chatId, "格式错误。使用：/addscheduledmsg 群ID|时间|类型|内容|按钮文本1,按钮文本2|按钮URL1,按钮URL2|重复周期[|caption]");
+            return;
+          }
+          let targetChatId = params[0].trim();
+          let timeStr = params[1].trim();
+          let type = params[2].trim();
+          let content = params[3].trim();
+          let buttonTexts = params[4].split(",").map(t => t.trim());
+          let buttonUrls = params[5].split(",").map(u => u.trim());
+          let repeat = params[6].trim().toLowerCase();
+          let caption = params.length > 7 ? params[7].trim() : "";
+          if (buttonTexts.length !== buttonUrls.length) {
+            sendMessage(chatId, "按钮文本和URL数量不匹配");
+            return;
+          }
+          let sendTime = new Date(timeStr);
+          if (isNaN(sendTime.getTime())) {
+            sendMessage(chatId, "时间格式错误，请使用 YYYY-MM-DD HH:MM:SS");
+            return;
+          }
+          if (!["none", "hourly", "daily", "weekly", "monthly"].includes(repeat)) {
+            sendMessage(chatId, "重复周期错误，可用值：none, hourly, daily, weekly, monthly");
+            return;
+          }
+          let buttons = [];
+          for (let i = 0; i < buttonTexts.length; i++) buttons.push({ text: buttonTexts[i], url: buttonUrls[i] });
+          let task = { chatId: targetChatId, time: sendTime.getTime(), type: type, content: content, buttons: buttons, repeat: repeat, caption: caption, lastMessageId: null };
+          try {
+            addScheduledTask(task);
+            sendMessage(chatId, "定时任务已添加。");
+          } catch (err) {
+            sendMessage(chatId, err.message);
+          }
+          return;
+        }
+        else if (commandName === "/addspam") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          let phrase = text.substring(8).trim();
+          if (phrase) {
+            let spamPhrases = getSpamPhrases();
+            if (spamPhrases.indexOf(phrase) === -1) {
+              spamPhrases.push(phrase);
+              setSpamPhrases(spamPhrases);
+              sendMessage(chatId, `垃圾短语 "${phrase}" 已添加。`);
+            } else sendMessage(chatId, `垃圾短语 "${phrase}" 已存在。`);
+          } else sendMessage(chatId, "请提供要添加的垃圾短语。");
+          return;
+        }
+        else if (commandName === "/delspam") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          let phrase = text.substring(8).trim();
+          if (phrase) {
+            let spamPhrases = getSpamPhrases();
+            let index = spamPhrases.indexOf(phrase);
+            if (index !== -1) {
+              spamPhrases.splice(index, 1);
+              setSpamPhrases(spamPhrases);
+              sendMessage(chatId, `垃圾短语 "${phrase}" 已删除。`);
+            } else sendMessage(chatId, `垃圾短语 "${phrase}" 不存在。`);
+          } else sendMessage(chatId, "请提供要删除的垃圾短语。");
+          return;
+        }
+        else if (commandName === "/listspam") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          let spamPhrases = getSpamPhrases();
+          if (spamPhrases.length === 0) {
+            sendMessage(chatId, "暂无垃圾短语。");
+          } else {
+            let listText = "【垃圾短语列表】\n";
+            spamPhrases.forEach(phrase => {
+              listText += `- ${phrase}\n`;
+            });
+            sendMessage(chatId, listText);
+          }
+          return;
+        }
+        else if (commandName === "/setnightmode") {
+          if (!isCreator(senderId)) {
+            sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+            return;
+          }
+          let parts = text.split(" ");
+          if (parts.length < 2) return sendMessage(chatId, "格式错误，使用：/setnightmode on 开始时间 结束时间 时区偏移 或 /setnightmode off\n例如：/setnightmode on 22:00 07:00 UTC+8");
+          let state = parts[1].toLowerCase();
+          if (state === "off") {
+            setNightModeEnabled(false);
+            return sendMessage(chatId, "夜间模式已关闭。");
+          }
+          else if (state === "on") {
+            if (parts.length < 5) return sendMessage(chatId, "格式错误，使用：/setnightmode on 开始时间 结束时间 时区偏移\n例如：/setnightmode on 22:00 07:00 UTC+8");
+            let startTime = parts[2];
+            let endTime = parts[3];
+            let timezone = parts[4].toUpperCase();
+            if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) return sendMessage(chatId, "时间格式错误，请使用 HH:MM，如 22:00");
+            if (!/^UTC[+-]\d{1,2}$/.test(timezone)) return sendMessage(chatId, "时区格式错误，请使用 UTC+8 或 UTC-8 等格式");
+            let offset = parseInt(timezone.replace("UTC", ""), 10);
+            setNightModeEnabled(true);
+            setNightModeStart(startTime);
+            setNightModeEnd(endTime);
+            setNightModeOffset(offset);
+            return sendMessage(chatId, `夜间模式已启用，从 ${startTime} 到 ${endTime}，时区 ${timezone}。`);
+          }
+          else return sendMessage(chatId, "无效参数，使用：/setnightmode on 开始时间 结束时间 时区偏移 或 /setnightmode off");
+        }
+      }
+    }
+
+    if (chatId < 0 && isNightModeActive() && !isSenderAdmin) {
+      deleteMessage(chatId, message_id);
+      sendAutoDeleteMessage(chatId, "夜间模式已启用，非管理员消息将被删除。", 10);
+      return;
+    }
+
+    if (chatId < 0 && text) {
+      let expectedAnswer = getMathVerifyAnswer(chatId, senderId);
+      if (expectedAnswer !== null) {
+        if (/^\d+$/.test(text) && text === expectedAnswer) {
+          deleteMathVerifyAnswer(chatId, senderId);
+          setVerifiedStatus(chatId, senderId, "true");
+          let joinData = getJoinData(chatId, senderId);
+          if (joinData && joinData.verificationMessageId) {
+            deleteMessage(chatId, joinData.verificationMessageId);
+          }
+          deleteMessage(chatId, message_id);
+          sendMessage(chatId, "验证通过，欢迎加入群聊！");
+          if (getWelcomeEnabled()) sendCustomWelcome(chatId, [message.from]);
+          deleteJoinData(chatId, senderId);
+        } else {
+          sendMessage(chatId, "答案错误，请重新输入仅包含数字的答案。");
+          deleteMessage(chatId, message_id);
+        }
+        return;
+      }
+    }
+
+    if (text) {
+      let cache = CacheService.getScriptCache();
+
+      let editTaskContentStr = cache.get("EDIT_TASK_CONTENT_" + senderId);
+      if (editTaskContentStr) {
+        let taskId = editTaskContentStr;
+        let tasks = getScheduledTasks();
+        let taskIndex = tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) {
+          sendMessage(chatId, "定时消息不存在");
+          cache.remove("EDIT_TASK_CONTENT_" + senderId);
+          return;
+        }
+        let task = tasks[taskIndex];
+        task.content = text.trim();
+        setScheduledTasks(tasks);
+        sendMessage(chatId, `定时消息的 content 已更新为：${text.trim()}`);
+        cache.remove("EDIT_TASK_CONTENT_" + senderId);
+        sendScheduledTasksMenu(chatId);
+        return;
+      }
+
+      let editTaskDataStr = cache.get("EDIT_TASK_" + senderId);
+      if (editTaskDataStr) {
+        let editTaskData = JSON.parse(editTaskDataStr);
+        let taskId = editTaskData.taskId;
+        let field = editTaskData.field;
+        let newValue = text.trim();
+        let tasks = getScheduledTasks();
+        let taskIndex = tasks.findIndex(t => t.id === taskId);
+        if (taskIndex === -1) {
+          sendMessage(chatId, "定时消息不存在");
+          cache.remove("EDIT_TASK_" + senderId);
+          return;
+        }
+        let task = tasks[taskIndex];
+        switch (field) {
+          case "chatId":
+            task.chatId = newValue;
+            break;
+          case "time":
+            let sendTime = new Date(newValue);
+            if (isNaN(sendTime.getTime())) {
+              sendMessage(chatId, "时间格式错误，请使用 YYYY-MM-DD HH:MM:SS，例如 2023-12-31 23:59:59");
+              return;
+            }
+            task.time = sendTime.getTime();
+            break;
+          case "type":
+            if (!["text", "photo", "video", "audio", "document"].includes(newValue)) {
+              sendMessage(chatId, "类型错误，请使用 text, photo, video, audio 或 document");
+              return;
+            }
+            task.type = newValue;
+            sendMessage(chatId, `请发送新的内容（对于${newValue}是${newValue === "text" ? "文本" : "媒体URL"}）`);
+            cache.put("EDIT_TASK_CONTENT_" + senderId, taskId, 300);
+            break;
+          case "content":
+            task.content = newValue;
+            break;
+          case "buttons":
+            let btnParts = newValue.split(",").map(p => p.trim());
+            if (btnParts.length % 2 !== 0) {
+              sendMessage(chatId, "按钮文本和URL必须成对出现，例如：按钮1,https://example.com/1,按钮2,https://example.com/2");
+              return;
+            }
+            task.buttons = [];
+            for (let i = 0; i < btnParts.length; i += 2) {
+              task.buttons.push({ text: btnParts[i], url: btnParts[i + 1] });
+            }
+            break;
+          case "repeat":
+            let repeat = newValue.toLowerCase();
+            if (!["none", "hourly", "daily", "weekly", "monthly"].includes(repeat)) {
+              sendMessage(chatId, "重复周期错误，可用值：none, hourly, daily, weekly, monthly");
+              return;
+            }
+            task.repeat = repeat;
+            break;
+          case "caption":
+            task.caption = newValue;
+            break;
+          default:
+            sendMessage(chatId, "未知字段");
+            cache.remove("EDIT_TASK_" + senderId);
+            return;
+        }
+        setScheduledTasks(tasks);
+        if (field !== "type") {
+          sendMessage(chatId, `定时消息的 ${field} 已更新为：${newValue}`);
+          cache.remove("EDIT_TASK_" + senderId);
+          sendScheduledTasksMenu(chatId);
+        }
+        return;
+      }
+
+      let addReplyDataStr = cache.get("ADD_reply_" + senderId);
+      if (addReplyDataStr) {
+        let addReplyData = JSON.parse(addReplyDataStr);
+        let step = addReplyData.step;
+        switch (step) {
+          case "keyword":
+            addReplyData.keyword = text.trim();
+            addReplyData.step = "type";
+            cache.put("ADD_reply_" + senderId, JSON.stringify(addReplyData), 300);
+            sendMessage(chatId, "请发送回复类型（text, photo, video, audio, document）：");
+            break;
+          case "type":
+            let type = text.trim().toLowerCase();
+            if (["text", "photo", "video", "audio", "document"].includes(type)) {
+              addReplyData.type = type;
+              addReplyData.step = "content";
+              cache.put("ADD_reply_" + senderId, JSON.stringify(addReplyData), 300);
+              sendMessage(chatId, `请发送${type}内容（对于text是文本，对于其他是媒体URL）：`);
+            } else sendMessage(chatId, "类型错误，请使用 text, photo, video, audio 或 document");
+            break;
+          case "content":
+            addReplyData.content = text.trim();
+            if (addReplyData.type !== "text") {
+              addReplyData.step = "caption";
+              cache.put("ADD_reply_" + senderId, JSON.stringify(addReplyData), 300);
+              sendMessage(chatId, "请发送caption（可选，按 Enter 跳过）：");
+            } else {
+              addReplyData.step = "url";
+              cache.put("ADD_reply_" + senderId, JSON.stringify(addReplyData), 300);
+              sendMessage(chatId, "请发送超级链接（可选，按 Enter 跳过）：");
+            }
+            break;
+          case "caption":
+            addReplyData.caption = text.trim();
+            addReplyData.step = "url";
+            cache.put("ADD_reply_" + senderId, JSON.stringify(addReplyData), 300);
+            sendMessage(chatId, "请发送超级链接（可选，按 Enter 跳过）：");
+            break;
+          case "url":
+            addReplyData.url = text.trim();
+            saveReply(addReplyData);
+            sendMessage(chatId, `关键词回复 "${addReplyData.keyword}" 已添加`);
+            cache.remove("ADD_reply_" + senderId);
+            break;
+        }
+        return;
+      }
+
+      let editWelcomeDataStr = cache.get("EDIT_WELCOME_" + senderId);
+      if (editWelcomeDataStr) {
+        let editWelcomeData = JSON.parse(editWelcomeDataStr);
+        let step = editWelcomeData.step;
+        switch (step) {
+          case "type":
+            let type = text.trim().toLowerCase();
+            if (["text", "photo", "video", "audio", "document"].includes(type)) {
+              editWelcomeData.type = type;
+              editWelcomeData.step = "content";
+              cache.put("EDIT_WELCOME_" + senderId, JSON.stringify(editWelcomeData), 300);
+              sendMessage(chatId, `请发送${type}内容（对于text是文本，对于其他是媒体URL）：`);
+            } else sendMessage(chatId, "类型错误，请使用 text, photo, video, audio 或 document");
+            break;
+          case "content":
+            editWelcomeData.content = text.trim();
+            if (editWelcomeData.type !== "text") {
+              editWelcomeData.step = "caption";
+              cache.put("EDIT_WELCOME_" + senderId, JSON.stringify(editWelcomeData), 300);
+              sendMessage(chatId, "请发送caption（可选，按 Enter 跳过）：");
+            } else {
+              editWelcomeData.step = "buttons";
+              cache.put("EDIT_WELCOME_" + senderId, JSON.stringify(editWelcomeData), 300);
+              sendMessage(chatId, "请发送按钮信息，格式：文本1,URL1,文本2,URL2,...（多个按钮用逗号分隔，按 Enter 跳过）：");
+            }
+            break;
+          case "caption":
+            editWelcomeData.caption = text.trim();
+            editWelcomeData.step = "buttons";
+            cache.put("EDIT_WELCOME_" + senderId, JSON.stringify(editWelcomeData), 300);
+            sendMessage(chatId, "请发送按钮信息，格式：文本1,URL1,文本2,URL2,...（多个按钮用逗号分隔，按 Enter 跳过）：");
+            break;
+          case "buttons":
+            let btnParts = text.trim().split(",").map(p => p.trim());
+            if (btnParts.length > 0 && btnParts.length % 2 === 0) {
+              editWelcomeData.buttons = [];
+              for (let i = 0; i < btnParts.length; i += 2) {
+                editWelcomeData.buttons.push({ text: btnParts[i], url: btnParts[i + 1] });
+              }
+            } else editWelcomeData.buttons = [];
+            setWelcomeMessage({
+              type: editWelcomeData.type,
+              content: editWelcomeData.type === "text" ? editWelcomeData.content : undefined,
+              media: editWelcomeData.type !== "text" ? editWelcomeData.content : undefined,
+              caption: editWelcomeData.caption || "",
+              buttons: editWelcomeData.buttons
+            });
+            sendMessage(chatId, "欢迎消息已更新！");
+            cache.remove("EDIT_WELCOME_" + senderId);
+            break;
+        }
+        return;
+      }
+
+      let setupDataStr = cache.get("TASK_SETUP_" + chatId);
+      if (setupDataStr) {
+        let setupData = JSON.parse(setupDataStr);
+        let step = setupData.step;
+        let taskData = setupData.data;
+        switch (step) {
+          case "chatId": taskData.chatId = text.trim(); sendTaskSetupMessage(chatId, "time", taskData); break;
+          case "time":
+            let sendTime = new Date(text.trim());
+            if (isNaN(sendTime.getTime())) sendMessage(chatId, "时间格式错误，请使用 YYYY-MM-DD HH:MM:SS");
+            else { taskData.time = sendTime.getTime(); sendTaskSetupMessage(chatId, "type", taskData); }
+            break;
+          case "type":
+            if (["text", "photo", "video", "audio", "document"].includes(text.trim().toLowerCase())) {
+              taskData.type = text.trim().toLowerCase();
+              sendTaskSetupMessage(chatId, "content", taskData);
+            } else sendMessage(chatId, "类型错误，请使用 text, photo, video, audio 或 document");
+            break;
+          case "content": taskData.content = text.trim(); sendTaskSetupMessage(chatId, "buttons", taskData); break;
+          case "buttons":
+            let btnParts = text.split(",").map(p => p.trim());
+            if (btnParts.length % 2 !== 0) sendMessage(chatId, "按钮文本和URL必须成对出现");
+            else {
+              taskData.buttons = [];
+              for (let i = 0; i < btnParts.length; i += 2) taskData.buttons.push({ text: btnParts[i], url: btnParts[i + 1] });
+              sendTaskSetupMessage(chatId, "repeat", taskData);
+            }
+            break;
+          case "repeat":
+            let repeat = text.trim().toLowerCase();
+            if (["none", "hourly", "daily", "weekly", "monthly"].includes(repeat)) {
+              taskData.repeat = repeat;
+              if (taskData.type !== "text") sendTaskSetupMessage(chatId, "caption", taskData);
+              else {
+                taskData.lastMessageId = null; addScheduledTask(taskData); sendMessage(chatId, "定时任务已添加。"); cache.remove("TASK_SETUP_" + chatId);
+              }
+            } else sendMessage(chatId, "重复周期错误，可用值：none, hourly, daily, weekly, monthly");
+            break;
+          case "caption":
+            taskData.caption = text.trim() || ""; taskData.lastMessageId = null; addScheduledTask(taskData);
+            sendMessage(chatId, "定时任务已添加。"); cache.remove("TASK_SETUP_" + chatId);
+            break;
+        }
+        return;
+      }
+
+      if (isCreator(senderId)) {
+        if (text.startsWith("/addreply") || text.startsWith("/editreply")) {
+          let params = text.substring(text.indexOf(" ") + 1).trim();
+          let parts = params.split("|");
+          if (parts.length < 3) return sendMessage(chatId, "格式错误，格式：/addreply 关键词|类型|内容[|链接|说明]，类型可为 text, photo, video, document");
+          let keyword = parts[0].trim();
+          let type = parts[1].trim();
+          let content = parts[2].trim();
+          let replyObj = { type: type };
+          if (type === "text") {
+            replyObj.content = content;
+            replyObj.url = parts.length >= 4 ? parts[3].trim() : "";
+          } else if (["photo", "video", "audio", "document"].includes(type)) {
+            replyObj.media = content;
+            replyObj.caption = parts.length >= 4 ? parts[3].trim() : "";
+            replyObj.url = parts.length >= 5 ? parts[4].trim() : "";
+          } else return sendMessage(chatId, "未知的类型，请使用 text, photo, video, audio 或 document");
+          let customReplies = getCustomReplies();
+          if (customReplies.hasOwnProperty(keyword) && text.startsWith("/addreply")) return sendMessage(chatId, `关键词 "${keyword}" 已存在，请使用其他关键词或使用 /editreply 更新。`);
+          customReplies[keyword] = replyObj;
+          setCustomReplies(customReplies);
+          Logger.log(`添加/更新关键词回复: ${keyword} -> ${JSON.stringify(replyObj)}`);
+          return sendMessage(chatId, `关键词回复 "${keyword}" 已添加/更新`);
+        }
+        if (text.startsWith("/delreply")) {
+          let keyword = text.substring(9).trim();
+          let customReplies = getCustomReplies();
+          if (customReplies.hasOwnProperty(keyword)) {
+            delete customReplies[keyword];
+            setCustomReplies(customReplies);
+            Logger.log(`删除关键词回复: ${keyword}`);
+            return sendMessage(chatId, `关键词回复 "${keyword}" 已删除`);
+          }
+          return sendMessage(chatId, `关键词回复 "${keyword}" 不存在`);
+        }
+        if (text.startsWith("/delfuzzy")) {
+          let params = text.substring(text.indexOf(" ") + 1).trim();
+          let fuzzyWords = getFuzzyBannedWords();
+          let index = fuzzyWords.indexOf(params);
+          if (index !== -1) {
+            fuzzyWords.splice(index, 1);
+            setFuzzyBannedWords(fuzzyWords);
+            Logger.log(`删除自定义模糊违禁词：${params}`);
+            return sendMessage(chatId, `自定义模糊违禁词 "${params}" 已删除`);
+          }
+          return sendMessage(chatId, `自定义模糊违禁词 "${params}" 不存在`);
+        }
+      } else if (text && (text.startsWith("/addreply") || text.startsWith("/editreply") || text.startsWith("/delreply") || text.startsWith("/delfuzzy"))) {
+        sendMessage(chatId, "❌ 只有机器人创建者可以使用该命令");
+        return;
+      }
+
+      if (isSenderAdmin) {
+        if (text.startsWith("/clearwarnings")) {
+          if (message.reply_to_message && message.reply_to_message.from) {
+            let targetUser = message.reply_to_message.from;
+            deleteWarningCount(chatId, targetUser.id);
+            return sendMessage(chatId, `已清除用户 ${targetUser.id} 的警告记录`);
+          }
+          let parts = text.split(" ");
+          if (parts.length < 2) return sendMessage(chatId, "请回复要清除警告的用户消息，或者使用格式：/clearwarnings 用户ID");
+          let targetUserId = parts[1].trim();
+          deleteWarningCount(chatId, targetUserId);
+          return sendMessage(chatId, `已清除用户 ${targetUserId} 的警告记录`);
+        }
+        if (text.startsWith("/stats")) {
+          let allProps = PropertiesService.getScriptProperties().getProperties();
+          let statsText = "当前警告统计：\n";
+          for (let key in allProps) {
+            if (key.indexOf("warn_" + chatId + "_") === 0) {
+              let parts = key.split("_");
+              let userId = parts[2];
+              let count = allProps[key];
+              statsText += `用户 ${userId} 警告次数: ${count}\n`;
+            }
+          }
+          if (statsText === "当前警告统计：\n") statsText += "无警告记录。";
+          return sendMessage(chatId, statsText);
+        }
+        if (text.startsWith("/setpindelete")) {
+          let parts = text.split(" ");
+          if (parts.length < 2) return sendMessage(chatId, "格式错误，使用：/setpindelete on/off [间隔分钟数]");
+          let state = parts[1].toLowerCase();
+          if (state === "on") {
+            let interval = parts.length > 2 ? parseInt(parts[2], 10) : 60;
+            if (isNaN(interval) || interval < 1) interval = 60;
+            setPinAutoDeleteEnabled(true);
+            setPinAutoDeleteInterval(interval);
+            setupPinAutoDeleteTrigger();
+            return sendMessage(chatId, `置顶消息自动删除已启用，每 ${interval} 分钟检查一次。`);
+          }
+          else if (state === "off") {
+            setPinAutoDeleteEnabled(false);
+            deleteTriggers("deletePinnedMessages");
+            return sendMessage(chatId, "置顶消息自动删除已关闭。");
+          }
+          else return sendMessage(chatId, "无效参数，使用：/setpindelete on/off [间隔分钟数]");
+        }
+      }
+
+      const cacheFuzzy = CacheService.getScriptCache();
+      const cachedChatId = cacheFuzzy.get("TEMP_FUZZY_" + senderId);
+      if (cachedChatId !== null) {
+        if (chatId > 0 || cachedChatId === chatId.toString()) {
+          let words = text.split(/[,\uFF0C]/).map(w => w.trim());
+          let fuzzyWords = getFuzzyBannedWords();
+          let added = [];
+          words.forEach(word => {
+            if (word && fuzzyWords.indexOf(word) === -1) {
+              fuzzyWords.push(word);
+              added.push(word);
+            }
+          });
+          if (added.length > 0) {
+            setFuzzyBannedWords(fuzzyWords);
+            Logger.log(`成功添加模糊违禁词：${added.join(", ")}`);
+            sendMessage(chatId, `自定义模糊违禁词 "${added.join(", ")}" 已添加。`);
+          } else sendMessage(chatId, "所有违禁词均已存在，无新词添加。");
+          cacheFuzzy.remove("TEMP_FUZZY_" + senderId);
+          return;
+        }
+      }
+    }
+
+    if (message.new_chat_members) {
+      const newMembers = message.new_chat_members;
+      const spamPhrases = getSpamPhrases();
+      const isMathVerificationEnabled = getMathVerificationEnabled();
+      const joinTime = message.date;
+      let membersToWelcome = [];
+      newMembers.forEach(function(member) {
+        const fullName = (member.first_name || "") + " " + (member.last_name || "").trim();
+        if (containsSpamPhrase(fullName, spamPhrases)) {
+          kickUser(chatId, member.id);
+          sendMessage(chatId, `用户 ${member.first_name} (ID: ${member.id}) 因名字包含敏感词被踢出。`);
+        } else {
+          if (member.id === BOT_ID) {
+            const inviterId = message.from.id;
+            if (isCreator(inviterId)) {
+              sendMessage(chatId, "机器人已由群组创建者拉入，欢迎使用！");
+            } else {
+              sendMessage(chatId, "只有群组创建者才能将机器人拉入群组，机器人将自动退出。");
+              sendRequest("leaveChat", { chat_id: chatId });
+              return;
+            }
+          } else {
+            if (isMathVerificationEnabled) {
+              let a = Math.floor(Math.random() * 10) + 1;
+              let b = Math.floor(Math.random() * 10) + 1;
+              let answer = (a + b).toString();
+              setMathVerifyAnswer(chatId, member.id, answer);
+              let verificationMessage = sendMessage(chatId, `欢迎 ${member.first_name}！请在1分钟内回复答案：${a} + ${b} = ? (仅输入数字)`);
+              let verificationMessageId = null;
+              if (verificationMessage && verificationMessage.ok && verificationMessage.result && verificationMessage.result.message_id) {
+                verificationMessageId = verificationMessage.result.message_id;
+              } else {
+                Logger.log(`发送验证消息失败给用户 ${member.id} 在群 ${chatId}`);
+              }
+              setJoinData(chatId, member.id, joinTime, member.first_name, verificationMessageId);
+              setVerifiedStatus(chatId, member.id, "false");
+            } else if (getWelcomeEnabled()) {
+              membersToWelcome.push(member);
+            }
+          }
+        }
+      });
+      if (getWelcomeEnabled() && membersToWelcome.length > 0) sendCustomWelcome(chatId, membersToWelcome);
+      deleteMessage(chatId, message_id);
+      return;
+    }
+
+    if (message.left_chat_member) {
+      const name = message.left_chat_member.first_name;
+      sendAutoDeleteMessage(chatId, `用户 ${name} 离开了群聊`, getEventAutoDeleteDuration());
+      deleteMessage(chatId, message_id);
+      return;
+    }
+    if (message.new_chat_title) {
+      const newTitle = message.new_chat_title;
+      sendAutoDeleteMessage(chatId, `群聊名称已更新为: ${newTitle}`, getEventAutoDeleteDuration());
+      deleteMessage(chatId, message_id);
+      return;
+    }
+
+    if (getFilterEnabled() && (!isSenderAdmin || !getAdminExempt())) {
+      if (message.forward_from_chat && message.forward_from_chat.type === "channel") {
+        Logger.log("检测到从频道转发的消息");
+        return handleViolation(chatId, senderId, message_id);
+      }
+      if (getForwardFilterEnabled() && message.forward_date) {
+        let fwdContent = text || message.caption || "";
+        if (fwdContent && isSpam(fwdContent)) {
+          Logger.log("检测到转发消息内容违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (text) {
+        if (USER_LAST_MESSAGE[chatId] === text) return;
+        USER_LAST_MESSAGE[chatId] = text;
+        if (isSpam(text)) {
+          Logger.log("检测到文本违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.photo && getPornMediaFilterEnabled()) {
+        let photoArray = message.photo;
+        let largestPhoto = photoArray[photoArray.length - 1];
+        let file_id = largestPhoto.file_id;
+        if (analyzePhotoSafeSearch(file_id)) {
+          Logger.log("检测到色情媒体违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.video || message.animation) {
+        let caption = message.caption;
+        if (caption && isSpam(caption)) {
+          Logger.log("检测到视频/动画违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.document) {
+        let fileName = message.document.file_name || "";
+        if (/\.apk$/i.test(fileName)) {
+          Logger.log("检测到 APK 文件违规");
+          return handleViolation(chatId, senderId, message_id);
+        }
+      }
+      if (message.sticker) {
+        Logger.log("检测到贴纸违规");
+        return handleViolation(chatId, senderId, message_id);
+      }
+      if (message.custom_emoji) {
+        Logger.log("检测到自定义表情违规");
+        return handleViolation(chatId, senderId, message_id);
+      }
+    }
+
+    if (text) {
+      const customReplies = getCustomReplies();
+      if (customReplies[text]) {
+        Logger.log("匹配到自定义回复: " + text);
+        return sendCustomReply(chatId, customReplies[text]);
+      }
+    }
+  } catch (error) {
+    Logger.log("❌ 处理消息出错: " + error.toString());
+  }
+}
+
+// ========== 保存关键词回复 ==========
+function saveReply(data) {
+  let customReplies = getCustomReplies();
+  let replyObj = { type: data.type };
+  if (data.type === "text") {
+    replyObj.content = data.content;
+    replyObj.url = data.url || "";
+  } else {
+    replyObj.media = data.content;
+    if (data.caption) replyObj.caption = data.caption;
+    replyObj.url = data.url || "";
+  }
+  customReplies[data.keyword] = replyObj;
+  setCustomReplies(customReplies);
+  Logger.log(`添加关键词回复: ${data.keyword} -> ${JSON.stringify(replyObj)}`);
+}
+
+// ========== 处罚函数 ==========
+function banUser(chatId, userId) {
+  if (userId === BOT_ID) return false;
+  let result = sendRequest("restrictChatMember", {
+    chat_id: chatId,
+    user_id: userId,
+    permissions: { can_send_messages: false }
+  });
+  return result && result.ok;
+}
+
+function handleChatMemberUpdate(chatMemberUpdate) {
+  const chatId = chatMemberUpdate.chat.id;
+  const oldMember = chatMemberUpdate.old_chat_member;
+  const newMember = chatMemberUpdate.new_chat_member;
+  if (oldMember.user.first_name !== newMember.user.first_name || oldMember.user.last_name !== newMember.user.last_name) {
+    const userId = newMember.user.id;
+    const oldName = oldMember.user.first_name + (oldMember.user.last_name ? " " + oldMember.user.last_name : "");
+    const newName = newMember.user.first_name + (newMember.user.last_name ? " " + newMember.user.last_name : "");
+    Logger.log(`检测到用户更名：${oldName} -> ${newName}`);
+    const reminderText = `用户 ${oldName} 更名为 ${newName}，请谨防冒充该用户搞诈骗！`;
+    const result = sendMessage(chatId, reminderText);
+    if (result && result.ok && result.result && result.result.message_id) {
+      pinChatMessage(chatId, result.result.message_id);
+      Logger.log(`成功置顶消息 ${result.result.message_id} 在群 ${chatId}`);
+    } else {
+      Logger.log(`置顶更名提示消息失败在群 ${chatId}`);
+    }
+  }
+}
+
+function pinChatMessage(chatId, messageId) {
+  let result = sendRequest("pinChatMessage", { chat_id: chatId, message_id: messageId, disable_notification: true });
+  if (result && result.ok) Logger.log(`成功置顶消息 ${messageId} 在群 ${chatId}`);
+  else Logger.log(`置顶消息 ${messageId} 在群 ${chatId} 失败`);
+}
+
+// ========== 帮助说明消息 ==========
+function sendHelpMessage(chatId) {
+  const helpText =
+    "【使用说明】\n\n" +
+    "【基本命令】\n" +
+    "• /help - 显示本帮助信息\n" +
+    "• /start - 显示主菜单\n" +
+    "• /settings - 显示设置面板（仅创建者）\n" +
+    "• /ban - 永久禁言指定用户（仅管理员，可通过回复消息或指定用户ID）\n" +
+    "• /stats - 查看当前群内违规警告统计（仅管理员）\n" +
+    "• /clearwarnings - 清除指定用户的警告记录（仅管理员，可通过回复消息或指定用户ID）\n" +
+    "• /setpindelete on/off [间隔分钟数] - 设置置顶消息自动删除（仅管理员）\n" +
+    "• /setnightmode on 开始时间 结束时间 时区偏移 或 /setnightmode off - 设置夜间模式（仅创建者）\n" +
+    "    - 示例：/setnightmode on 22:00 07:00 UTC+8\n" +
+    "• /addscheduledmsg 群ID|时间|类型|内容|按钮文本1,按钮文本2|按钮URL1,按钮URL2|重复周期[|caption] - 添加定时消息（仅创建者）\n" +
+    "    - 示例：/addscheduledmsg -123456789|2023-12-31 23:59:59|text|定时消息|btn1,btn2|https://example.com/1,https://example.com/2|hourly\n" +
+    "• /myid - 查询您的用户ID\n" +
+    "【自定义回复管理】\n" +
+    "• /addreply 关键词|类型|内容[|链接|说明]\n" +
+    "    - 添加或更新自定义回复（仅创建者）\n" +
+    "    - 示例：/addreply 按钮7|text|这是新回复|https://example.com\n" +
+    "    - 类型可为 text, photo, video, audio, document（document 可用于发送任意文件，如 EXE, APK, ZIP 等）\n" +
+    "• /delreply 关键词 - 删除指定的自定义回复（仅创建者）\n" +
+    "• /delfuzzy 违禁词 - 删除指定的模糊违禁词（仅创建者）\n" +
+    "• 设置面板中【关键词回复】按钮 - 查看列表，或点击【添加关键词回复】按钮进行引导式设置\n" +
+    "【模糊违禁词管理】\n" +
+    "• 点击设置面板中的【模糊违禁词管理】按钮查看、添加或删除\n" +
+    "【欢迎消息设置】\n" +
+    "• 点击【设置欢迎消息】按钮修改欢迎消息，通过引导式设置完成，支持多个超级链接按钮（可选）\n" +
+    "【垃圾名字屏蔽】\n" +
+    "• /addspam 屏蔽词 - 添加垃圾短语到屏蔽列表（仅创建者）\n" +
+    "• /delspam 屏蔽词 - 从屏蔽列表中删除垃圾短语（仅创建者）\n" +
+    "• /listspam - 查看所有已添加的垃圾短语（仅创建者）\n" +
+    "    - 新用户名字若包含屏蔽列表中的短语，将被自动踢出\n" +
+    "【违规检测说明】\n" +
+    "• 新用户（包括管理员）需在1分钟内回答简单数学问题进行验证，否则验证消息将被删除并永久禁言\n" +
+    "• 验证成功后，验证消息和用户回答将被删除\n" +
+    "• 机器人会自动拦截所有从频道转发的消息\n" +
+    "• 检测消息中的广告、链接、色情内容、模糊违禁词以及非官方表情符号（包括贴纸和自定义表情）\n" +
+    "• 违规时删除消息并警告，累计警告达到设定次数后永久禁言用户\n" +
+    "• 管理员可通过设置面板启用豁免，豁免后管理员发送的贴纸和自定义表情不视为违规\n" +
+    "【新功能】\n" +
+    "• **欢迎消息按钮**：支持所有类型消息添加多个超级链接按钮，可跳过设置\n" +
+    "• **防刷屏**：1分钟内发送超过5条消息，删除该用户所有消息并永久禁言\n" +
+    "• **定时消息**：支持最多20条定时消息，可设置多个按钮和caption，类型支持 text, photo, video, audio, document，重复周期支持 none, hourly, daily, weekly, monthly\n" +
+    "• **置顶消息自动删除**：通过 /setpindelete 命令设置定时删除群置顶消息\n" +
+    "• **夜间模式**：通过 /setnightmode 命令设置夜间时间段，自动删除非管理员消息\n" +
+    "• **垃圾名字屏蔽**：自动检测新用户名字，屏蔽包含垃圾短语的用户入群\n" +
+    "• **删除已销号用户**：启用后检测并移除管理员中的已销号用户（注：因 API 限制，仅限管理员，建议手动检查或通过用户交互触发）\n" +
+    "• **数学验证**：对所有新用户（包括管理员）强制执行，1分钟内未通过将被永久禁言，提示消息10秒后自动删除\n" +
+    "• **机器人拉入限制**：只有群组创建者才能将机器人拉入群组，否则机器人自动退出";
+  sendMessage(chatId, helpText);
+}
+
+// ========== 自定义回复处理 ==========
+function sendCustomReply(chatId, reply) {
+  let options = {};
+  if (reply.url) options.reply_markup = { inline_keyboard: [[{ text: "访问链接", url: reply.url }]] };
+  let autoDuration = getReplyAutoDeleteDuration();
+  let result;
+
+  switch (reply.type) {
+    case "text":
+      if (autoDuration > 0) return sendAutoDeleteMessage(chatId, reply.content, autoDuration, options);
+      return sendMessage(chatId, reply.content, options);
+    case "photo":
+      result = sendPhoto(chatId, reply.media, { caption: reply.caption, ...options });
+      if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+        scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+      }
+      return result;
+    case "video":
+      result = sendVideo(chatId, reply.media, { caption: reply.caption, ...options });
+      if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+        scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+      }
+      return result;
+    case "audio":
+      result = sendAudio(chatId, reply.media, { caption: reply.caption, ...options });
+      if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+        scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+      }
+      return result;
+    case "document":
+      // 支持发送任意文件类型（如 EXE, APK, ZIP 等），只需提供正确的 URL
+      result = sendDocument(chatId, reply.media, { caption: reply.caption, ...options });
+      if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+        scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+      }
+      return result;
+    default:
+      return sendMessage(chatId, "未知的回复类型");
+  }
+}
+
+// ========== 欢迎消息发送 ==========
+function sendCustomWelcome(chatId, newMembers) {
+  if (!getWelcomeEnabled()) return;
+  let welcome = getWelcomeMessage();
+  let names = newMembers.map(u => u.first_name).join(", ");
+  let options = {};
+  if (welcome.buttons && welcome.buttons.length > 0) {
+    options.reply_markup = {
+      inline_keyboard: welcome.buttons.map(btn => [{ text: btn.text, url: btn.url }])
+    };
+  }
+  let autoDuration = getWelcomeAutoDeleteDuration();
+  let result;
+
+  if (welcome.type === "text") {
+    let textToSend = welcome.content.replace("{names}", names);
+    if (autoDuration > 0) sendAutoDeleteMessage(chatId, textToSend, autoDuration, options);
+    else sendMessage(chatId, textToSend, options);
+  } else if (welcome.type === "photo") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    result = sendPhoto(chatId, welcome.media, { ...options });
+    if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+      scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+    }
+  } else if (welcome.type === "video") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    result = sendVideo(chatId, welcome.media, { ...options });
+    if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+      scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+    }
+  } else if (welcome.type === "audio") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    result = sendAudio(chatId, welcome.media, { ...options });
+    if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+      scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+    }
+  } else if (welcome.type === "document") {
+    options.caption = welcome.caption ? welcome.caption.replace("{names}", names) : "";
+    result = sendDocument(chatId, welcome.media, { ...options });
+    if (autoDuration > 0 && result && result.ok && result.result && result.result.message_id) {
+      scheduleMessageDeletion(chatId, result.result.message_id, autoDuration);
+    }
+  }
+}
+
+// ========== 违规检测及处理 ==========
+function isSpam(text) {
+  const spamRegex = new RegExp(`\\b(${SPAM_KEYWORDS.join("|")})\\b`, "i");
+  const pornRegex = new RegExp(`\\b(${PORN_KEYWORDS.join("|")})\\b`, "i");
+  if (spamRegex.test(text) || pornRegex.test(text) || LINK_PATTERN.test(text)) {
+    Logger.log("关键词或链接匹配: " + text);
+    return true;
+  }
+  if (getFuzzyMatchEnabled()) {
+    const bannedWords = getFuzzyBannedWords();
+    Logger.log(`检查模糊匹配: 文本="${text}", 违禁词=${JSON.stringify(bannedWords)}, 阈值=${FUZZY_THRESHOLD}`);
+    if (fuzzyContains(text, bannedWords, FUZZY_THRESHOLD)) {
+      Logger.log("模糊匹配到违禁词: " + text);
+      return true;
+    } else Logger.log("未匹配到模糊违禁词: " + text);
+  }
+  return false;
+}
+
+function handleViolation(chatId, userId, messageId) {
+  if (!deleteMessage(chatId, messageId)) Logger.log(`删除消息 ${messageId} 失败`);
+  else warnUser(chatId, userId);
+}
+
+function deleteMessage(chatId, messageId) {
+  let result = sendRequest("deleteMessage", { chat_id: chatId, message_id: messageId });
+  Logger.log(`deleteMessage ${chatId}/${messageId}: ${JSON.stringify(result)}`);
+  return result && result.ok;
+}
+
+function sendAutoDeleteMessage(chatId, text, autoDeleteSeconds, options = {}) {
+  const result = sendMessage(chatId, text, options);
+  if (result && result.ok && result.result && result.result.message_id && autoDeleteSeconds > 0) {
+    scheduleMessageDeletion(chatId, result.result.message_id, autoDeleteSeconds);
+  }
+}
+
+function scheduleMessageDeletion(chatId, messageId, deleteAfterSeconds) {
+  const deleteTime = new Date().getTime() + deleteAfterSeconds * 1000;
+  const key = `DELETE_${chatId}_${messageId}`;
+  PropertiesService.getScriptProperties().setProperty(key, deleteTime.toString());
+}
+
+function checkAndDeleteMessages() {
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date().getTime();
+  const allProps = props.getProperties();
+  const keysToDelete = [];
+  for (let key in allProps) {
+    if (key.startsWith("DELETE_")) {
+      const deleteTime = parseInt(allProps[key], 10);
+      if (now >= deleteTime) {
+        const parts = key.split("_");
+        const chatId = parts[1];
+        const messageId = parts[2];
+        deleteMessage(chatId, messageId);
+        keysToDelete.push(key);
+      }
+    }
+  }
+  keysToDelete.forEach(key => props.deleteProperty(key));
+}
+
+function setupDeletionTrigger() {
+  deleteTriggers("checkAndDeleteMessages");
+  try {
+    ScriptApp.newTrigger("checkAndDeleteMessages")
+      .timeBased()
+      .everyMinutes(1)
+      .create();
+    Logger.log("消息自动删除触发器已设置为每分钟运行");
+  } catch (err) {
+    Logger.log(`设置消息自动删除触发器失败: ${err.toString()}`);
+  }
+}
+
+function warnUser(chatId, userId) {
+  let count = getWarningCount(chatId, userId);
+  count++;
+  setWarningCount(chatId, userId, count);
+  const autoDel = getPunishmentAutoDeleteDuration();
+  if (count >= getWarningLimit()) {
+    if (autoDel > 0) sendAutoDeleteMessage(chatId, `⚠️ 用户 ${userId} 已被永久禁言！`, autoDel);
+    else sendMessage(chatId, `⚠️ 用户 ${userId} 已被永久禁言！`);
+    banUser(chatId, userId);
+    deleteWarningCount(chatId, userId);
+  } else {
+    if (autoDel > 0) sendAutoDeleteMessage(chatId, `⚠️ 警告 ${count}/${getWarningLimit()}：请勿发送违规内容！`, autoDel);
+    else sendMessage(chatId, `⚠️ 警告 ${count}/${getWarningLimit()}：请勿发送违规内容！`);
+  }
+}
+
+// ========== 模糊匹配工具函数 ==========
+function levenshteinDistance(a, b) {
+  const m = a.length, n = b.length;
+  const dp = [];
+  for (let i = 0; i <= m; i++) dp[i] = [i];
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a.charAt(i - 1) === b.charAt(j - 1)) dp[i][j] = dp[i - 1][j - 1];
+      else dp[i][j] = Math.min(dp[i - 1][j - 1] + 1, dp[i][j - 1] + 1, dp[i - 1][j] + 1);
+    }
+  }
+  return dp[m][n];
+}
+
+function fuzzyMatch(text, bannedWord, threshold) {
+  text = text.toLowerCase();
+  bannedWord = bannedWord.toLowerCase();
+  const L = bannedWord.length;
+  const dynamicThreshold = Math.max(threshold, 1 / L);
+  if (text.length < L) {
+    const d = levenshteinDistance(text, bannedWord);
+    return (d <= dynamicThreshold * L);
+  }
+  for (let i = 0; i <= text.length - L; i++) {
+    const sub = text.substring(i, i + L);
+    const d = levenshteinDistance(sub, bannedWord);
+    if (d <= dynamicThreshold * L) return true;
+  }
+  return false;
+}
+
+function fuzzyContains(text, bannedWords, threshold) {
+  for (let i = 0; i < bannedWords.length; i++) {
+    const word = bannedWords[i];
+    if (word.length < 3) {
+      if (text.includes(word)) return true;
+    } else if (fuzzyMatch(text, word, threshold)) return true;
+  }
+  return false;
+}
+
+// ========== 安全检测图片（Google Cloud Vision API） ==========
+function analyzePhotoSafeSearch(file_id) {
+  let fileResponse = sendRequest("getFile", { file_id: file_id });
+  if (!fileResponse || !fileResponse.ok) {
+    Logger.log("获取图片文件失败");
+    return false;
+  }
+  let filePath = fileResponse.result.file_path;
+  let fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${filePath}`;
+  let imageResponse = UrlFetchApp.fetch(fileUrl);
+  let imageBlob = imageResponse.getBlob();
+  let base64Image = Utilities.base64Encode(imageBlob.getBytes());
+  let visionApiKey = 'YOUR_VISION_API_KEY'; // 请替换为您的 Google Cloud Vision API 密钥
+  let visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`;
+  let requestPayload = { requests: [{ image: { content: base64Image }, features: [{ type: "SAFE_SEARCH_DETECTION" }] }] };
+  let visionOptions = { method: "post", contentType: "application/json", payload: JSON.stringify(requestPayload) };
+  try {
+    let visionResponse = UrlFetchApp.fetch(visionUrl, visionOptions);
+    let visionResult = JSON.parse(visionResponse.getContentText());
+    if (visionResult.responses && visionResult.responses[0] && visionResult.responses[0].safeSearchAnnotation) {
+      let safeSearch = visionResult.responses[0].safeSearchAnnotation;
+      if (safeSearch.adult === "VERY_LIKELY" || safeSearch.adult === "LIKELY" ||
+          safeSearch.violence === "VERY_LIKELY" || safeSearch.violence === "LIKELY" ||
+          safeSearch.racy === "VERY_LIKELY" || safeSearch.racy === "LIKELY") {
+        Logger.log("检测到违规图片");
+        return true;
+      }
+    }
+  } catch (err) {
+    Logger.log("analyzePhotoSafeSearch 错误: " + err.toString());
+  }
+  return false;
+}
+
+// ========== 菜单及设置面板 ==========
+function sendMenu(chatId) {
+  sendMessage(chatId, "请选择一个选项：", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "按钮1", callback_data: "按钮1" }, { text: "按钮2", callback_data: "按钮2" }],
+        [{ text: "按钮3", callback_data: "按钮3" }, { text: "按钮4", callback_data: "按钮4" }],
+        [{ text: "按钮5", callback_data: "按钮5" }, { text: "按钮6", callback_data: "按钮6" }],
+        [{ text: "返回主菜单", callback_data: "返回主菜单" }]
+      ]
+    }
+  });
+  sendKeyboard(chatId);
+}
+
+function sendSettingsMenu(chatId) {
+  sendMessage(chatId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function buildSettingsMarkup() {
+  const settings = [
+    { text: `违规检测: ${getFilterEnabled() ? "✅" : "❌"}`, callback: "toggle_filter" },
+    { text: `模糊违禁词: ${getFuzzyMatchEnabled() ? "✅" : "❌"}`, callback: "toggle_fuzzy" },
+    { text: `转发检测: ${getForwardFilterEnabled() ? "✅" : "❌"}`, callback: "toggle_forward_filter" },
+    { text: `色情媒体: ${getPornMediaFilterEnabled() ? "✅" : "❌"}`, callback: "toggle_porn_media" },
+    { text: "模糊违禁词管理", callback: "manage_fuzzy" },
+    { text: `欢迎消息: ${getWelcomeEnabled() ? "✅" : "❌"}`, callback: "toggle_welcome" },
+    { text: "设置欢迎消息", callback: "manage_welcome" },
+    { text: "关键词回复", callback: "manage_replies" },
+    { text: "管理定时消息", callback: "manage_scheduled_tasks" },
+    { text: `禁言时长: ${formatDuration(getMuteDuration())}`, callback: "cycle_mute_duration" },
+    { text: `警告次数: ${getWarningLimit()}`, callback: "cycle_warning_limit" },
+    { text: `处罚提示: ${getPunishmentAutoDeleteDuration()}秒`, callback: "cycle_punishment_auto_delete" },
+    { text: `群提示: ${getEventAutoDeleteDuration()}秒`, callback: "cycle_event_auto_delete" },
+    { text: `欢迎自动删除: ${getWelcomeAutoDeleteDuration()}秒`, callback: "cycle_welcome_autodelete" },
+    { text: `回复自动删除: ${getReplyAutoDeleteDuration() / 60}分钟`, callback: "cycle_reply_autodelete" },
+    { text: `置顶删除: ${getPinAutoDeleteEnabled() ? "✅" : "❌"}`, callback: "toggle_pin_delete" },
+    { text: `删除已销号用户: ${getDeleteInactiveEnabled() ? "✅" : "❌"}`, callback: "toggle_delete_inactive" },
+    { text: `豁免管理员: ${getAdminExempt() ? "✅" : "❌"}`, callback: "toggle_admin_exempt" },
+    { text: `数学验证: ${getMathVerificationEnabled() ? "✅" : "❌"}`, callback: "toggle_math_verification" },
+    { text: `夜间模式: ${getNightModeEnabled() ? "✅" : "❌"}`, callback: "toggle_night_mode" },
+    { text: "我的群组", callback: "show_groups" },
+    { text: "返回主菜单", callback: "back_to_menu" }
+  ];
+
+  const inlineKeyboard = [];
+  for (let i = 0; i < settings.length; i += 2) {
+    const row = [settings[i]];
+    if (i + 1 < settings.length) row.push(settings[i + 1]);
+    inlineKeyboard.push(row.map(s => ({ text: s.text, callback_data: s.callback })));
+  }
+  return { inline_keyboard: inlineKeyboard };
+}
+
+function sendKeyboard(chatId) {
+  sendMessage(chatId, "请选择输入选项：", {
+    reply_markup: {
+      keyboard: [["选项A", "选项B", "选项C"], ["选项D", "选项E", "返回主菜单"]],
+      resize_keyboard: true,
+      one_time_keyboard: false
+    }
+  });
+}
+
+// ========== 关键词回复管理菜单 ==========
+function sendReplySettingsMenu(chatId) {
+  const customReplies = getCustomReplies();
+  let replyText = "【当前关键词回复列表】\n";
+  for (let key in customReplies) {
+    if (customReplies.hasOwnProperty(key)) {
+      let r = customReplies[key];
+      replyText += `\n关键词：${key}\n类型：${r.type}\n内容：${r.type === "text" ? r.content : r.media}\n链接：${r.url || "无"}\n`;
+      if (r.caption) replyText += `说明：${r.caption}\n`;
+    }
+  }
+  replyText += "\n管理提示：\n- 添加/更新：/addreply 关键词|类型|内容[|链接|说明]\n- 删除：/delreply 关键词\n- 或点击【添加关键词回复】按钮进行引导式设置\n（类型可为 text, photo, video, audio, document）";
+  let markup = {
+    inline_keyboard: [
+      [{ text: "刷新列表", callback_data: "refresh_replies" }],
+      [{ text: "添加关键词回复", callback_data: "add_reply" }],
+      [{ text: "返回设置面板", callback_data: "back_settings" }]
+    ]
+  };
+  sendMessage(chatId, replyText, { reply_markup: markup });
+}
+
+// ========== 自定义模糊违禁词管理菜单 ==========
+function sendFuzzySettingsMenu(chatId) {
+  const fuzzyWords = getFuzzyBannedWords();
+  let replyText = "【当前自定义模糊违禁词列表】\n";
+  if (fuzzyWords.length === 0) replyText += "暂无自定义模糊违禁词。\n";
+  else fuzzyWords.forEach(word => replyText += `- ${word}\n`);
+  replyText += "\n管理提示：\n点击下方按钮可删除对应的违禁词，或点击【添加模糊违禁词】按钮添加新违禁词。";
+  let inlineKeyboard = [];
+  if (fuzzyWords.length > 0) fuzzyWords.forEach(word => inlineKeyboard.push([{ text: `删除【${word}】`, callback_data: "del_fuzzy:" + encodeURIComponent(word) }]));
+  inlineKeyboard.push([{ text: "添加模糊违禁词", callback_data: "add_fuzzy" }]);
+  inlineKeyboard.push([{ text: "刷新列表", callback_data: "refresh_fuzzy" }]);
+  inlineKeyboard.push([{ text: "返回设置面板", callback_data: "back_settings" }]);
+  sendMessage(chatId, replyText, { reply_markup: { inline_keyboard: inlineKeyboard } });
+}
+
+// ========== 欢迎消息设置菜单 ==========
+function sendWelcomeSettingsMenu(chatId) {
+  let welcome = getWelcomeMessage();
+  let msg = "【当前欢迎消息设置】\n";
+  msg += "类型: " + welcome.type + "\n";
+  if (welcome.type === "text") msg += "内容: " + welcome.content + "\n";
+  else {
+    msg += "媒体: " + welcome.media + "\n";
+    msg += "说明: " + (welcome.caption || "") + "\n";
+  }
+  msg += "按钮: " + (welcome.buttons && welcome.buttons.length > 0 ? welcome.buttons.map(b => `${b.text} (${b.url})`).join(", ") : "无") + "\n";
+  msg += "\n管理提示：\n点击【修改欢迎消息】按钮，通过引导式设置更新欢迎消息，可添加多个超级链接按钮（可选）。";
+  let markup = { inline_keyboard: [[{ text: "修改欢迎消息", callback_data: "edit_welcome" }], [{ text: "返回设置面板", callback_data: "back_settings" }]] };
+  sendMessage(chatId, msg, { reply_markup: markup });
+}
+
+// ========== 定时消息管理菜单 ==========
+function sendScheduledTasksMenu(chatId) {
+  let tasks = getScheduledTasks();
+  let text = "【定时消息列表】\n";
+  if (tasks.length === 0) text += "暂无定时消息。\n";
+  else tasks.forEach(task => {
+    text += `\nID: ${task.id.substring(0, 8)}...\n群ID: ${task.chatId}\n时间: ${new Date(task.time).toLocaleString()}\n类型: ${task.type}\n内容: ${task.content}\n按钮: ${task.buttons.map(b => b.text).join(", ")}\n重复: ${task.repeat}\nCaption: ${task.caption || "无"}\n`;
+  });
+  text += `\n当前定时消息数量：${tasks.length}/20\n点击下方按钮管理定时消息。`;
+  let inlineKeyboard = [];
+  tasks.forEach(task => {
+    inlineKeyboard.push([
+      { text: `编辑 ${task.id.substring(0, 8)}`, callback_data: "edit_task:" + task.id },
+      { text: `删除 ${task.id.substring(0, 8)}`, callback_data: "delete_task:" + task.id }
+    ]);
+  });
+  inlineKeyboard.push([{ text: "添加定时消息", callback_data: "add_task" }]);
+  inlineKeyboard.push([{ text: "刷新列表", callback_data: "refresh_tasks" }]);
+  inlineKeyboard.push([{ text: "返回设置面板", callback_data: "back_settings" }]);
+  sendMessage(chatId, text, { reply_markup: { inline_keyboard: inlineKeyboard } });
+}
+
+// ========== 按钮回调处理 ==========
+function handleCallback(query) {
+  sendRequest("answerCallbackQuery", { callback_query_id: query.id });
+  const chatId = query.message.chat.id;
+  const messageId = query.message.message_id;
+  const data = query.data;
+  const senderId = query.from.id;
+
+  Logger.log(`处理回调: chatId=${chatId}, data=${data}`);
+
+  if (!isCreator(senderId) && (
+    data === "manage_scheduled_tasks" || data === "add_task" || data.startsWith("edit_task:") || 
+    data.startsWith("delete_task:") || data === "toggle_night_mode" || data === "edit_welcome" || 
+    data === "manage_welcome" || data === "toggle_delete_inactive" || data === "add_reply" || 
+    data === "manage_replies" || data === "manage_fuzzy"
+  )) {
+    sendMessage(chatId, "❌ 只有机器人创建者可以执行此操作");
+    return;
+  }
+
+  if (data === "manage_scheduled_tasks") sendScheduledTasksMenu(chatId);
+  else if (data === "add_task") {
+    let cache = CacheService.getScriptCache();
+    clearUserOperations(senderId);
+    sendTaskSetupMessage(chatId, "chatId", {});
+  }
+  else if (data.startsWith("edit_task:")) {
+    let taskId = data.substring("edit_task:".length);
+    let tasks = getScheduledTasks();
+    let task = tasks.find(t => t.id === taskId);
+    if (!task) { sendMessage(chatId, "定时消息不存在"); return; }
+    let inlineKeyboard = [
+      [{ text: "编辑群ID", callback_data: "edit_task_field:" + taskId + ":chatId" }],
+      [{ text: "编辑时间", callback_data: "edit_task_field:" + taskId + ":time" }],
+      [{ text: "编辑类型", callback_data: "edit_task_field:" + taskId + ":type" }],
+      [{ text: "编辑内容", callback_data: "edit_task_field:" + taskId + ":content" }],
+      [{ text: "编辑按钮", callback_data: "edit_task_field:" + taskId + ":buttons" }],
+      [{ text: "编辑重复周期", callback_data: "edit_task_field:" + taskId + ":repeat" }],
+      [{ text: "编辑Caption", callback_data: "edit_task_field:" + taskId + ":caption" }],
+      [{ text: "返回", callback_data: "manage_scheduled_tasks" }]
+    ];
+    sendMessage(chatId, "请选择要编辑的字段：", { reply_markup: { inline_keyboard: inlineKeyboard } });
+  }
+  else if (data.startsWith("edit_task_field:")) {
+    let parts = data.split(":");
+    let taskId = parts[1];
+    let field = parts[2];
+    let tasks = getScheduledTasks();
+    let task = tasks.find(t => t.id === taskId);
+    if (!task) { sendMessage(chatId, "定时消息不存在"); return; }
+    let currentValue;
+    let prompt;
+    switch (field) {
+      case "chatId":
+        currentValue = task.chatId;
+        prompt = "请发送新的目标群ID（例如 -123456789）";
+        break;
+      case "time":
+        currentValue = new Date(task.time).toLocaleString();
+        prompt = "请发送新的发送时间（格式：YYYY-MM-DD HH:MM:SS，例如 2023-12-31 23:59:59）";
+        break;
+      case "type":
+        currentValue = task.type;
+        prompt = "请发送新的消息类型（text, photo, video, audio, document）";
+        break;
+      case "content":
+        currentValue = task.content;
+        prompt = "请发送新的消息内容（对于text是文本，对于其他是媒体URL，例如 https://example.com/image.jpg）";
+        break;
+      case "buttons":
+        currentValue = task.buttons.length > 0 ? task.buttons.map(b => `${b.text},${b.url}`).join(", ") : "无";
+        prompt = "请发送新的按钮信息，格式：文本1,URL1,文本2,URL2,...（多个按钮用逗号分隔，例如 按钮1,https://example.com/1,按钮2,https://example.com/2）";
+        break;
+      case "repeat":
+        currentValue = task.repeat;
+        prompt = "请发送新的重复周期（none, hourly, daily, weekly, monthly）";
+        break;
+      case "caption":
+        currentValue = task.caption || "无";
+        prompt = "请发送新的caption（可选，按 Enter 跳过）";
+        break;
+      default:
+        sendMessage(chatId, "未知字段");
+        return;
+    }
+    let cache = CacheService.getScriptCache();
+    cache.put("EDIT_TASK_" + senderId, JSON.stringify({ taskId: taskId, field: field }), 300);
+    sendMessage(chatId, `当前${field}：${currentValue}\n${prompt}`);
+  }
+  else if (data.startsWith("delete_task:")) {
+    let taskId = data.substring("delete_task:".length);
+    deleteScheduledTask(taskId);
+    sendMessage(chatId, `定时消息 ${taskId.substring(0, 8)} 已删除`);
+    sendScheduledTasksMenu(chatId);
+  }
+  else if (data === "refresh_tasks") sendScheduledTasksMenu(chatId);
+  else if (data === "manage_welcome") sendWelcomeSettingsMenu(chatId);
+  else if (data === "toggle_filter") {
+    setFilterEnabled(!getFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_fuzzy") {
+    setFuzzyMatchEnabled(!getFuzzyMatchEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_forward_filter") {
+    setForwardFilterEnabled(!getForwardFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_porn_media") {
+    setPornMediaFilterEnabled(!getPornMediaFilterEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_welcome") {
+    setWelcomeEnabled(!getWelcomeEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_admin_exempt") {
+    setAdminExempt(!getAdminExempt());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "toggle_math_verification") {
+    setMathVerificationEnabled(!getMathVerificationEnabled());
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+  }
+  else if (data === "cycle_welcome_autodelete") cycleWelcomeAutoDelete(chatId, messageId);
+  else if (data === "cycle_reply_autodelete") cycleReplyAutoDelete(chatId, messageId);
+  else if (data === "cycle_mute_duration") cycleMuteDuration(chatId, messageId);
+  else if (data === "cycle_warning_limit") cycleWarningLimit(chatId, messageId);
+  else if (data === "cycle_punishment_auto_delete") cyclePunishmentAutoDelete(chatId, messageId);
+  else if (data === "cycle_event_auto_delete") cycleEventAutoDelete(chatId, messageId);
+  else if (data === "manage_replies") sendReplySettingsMenu(chatId);
+  else if (data === "manage_fuzzy") sendFuzzySettingsMenu(chatId);
+  else if (data === "refresh_fuzzy") sendFuzzySettingsMenu(chatId);
+  else if (data === "edit_welcome") {
+    let cache = CacheService.getScriptCache();
+    clearUserOperations(senderId);
+    cache.put("EDIT_WELCOME_" + senderId, JSON.stringify({ step: "type" }), 300);
+    sendMessage(chatId, "请发送欢迎消息类型（text, photo, video, audio, document）：");
+  }
+  else if (data === "add_fuzzy") {
+    let cache = CacheService.getScriptCache();
+    clearUserOperations(senderId);
+    cache.put("TEMP_FUZZY_" + senderId, chatId.toString(), 300);
+    sendMessage(chatId, "请直接发送要添加的模糊违禁词，用逗号（, 或 ，）分隔多个词语。");
+  }
+  else if (data.startsWith("del_fuzzy:")) {
+    let wordEncoded = data.substring("del_fuzzy:".length);
+    let word = decodeURIComponent(wordEncoded);
+    let fuzzyWords = getFuzzyBannedWords();
+    let index = fuzzyWords.indexOf(word);
+    if (index !== -1) {
+      fuzzyWords.splice(index, 1);
+      setFuzzyBannedWords(fuzzyWords);
+      sendMessage(chatId, `自定义模糊违禁词 "${word}" 已删除`);
+    } else sendMessage(chatId, `自定义模糊违禁词 "${word}" 不存在`);
+    sendFuzzySettingsMenu(chatId);
+  }
+  else if (data === "refresh_replies") sendReplySettingsMenu(chatId);
+  else if (data === "back_settings") {
+    clearUserOperations(senderId);
+    sendSettingsMenu(chatId);
+  }
+  else if (data === "show_groups") showGroupList(chatId);
+  else if (data === "back_to_menu") sendMenu(chatId);
+  else if (data === "toggle_pin_delete") {
+    let newState = !getPinAutoDeleteEnabled();
+    setPinAutoDeleteEnabled(newState);
+    setupPinAutoDeleteTrigger();
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `置顶消息自动删除已${newState ? "开启" : "关闭"}，检查间隔 ${getPinAutoDeleteInterval()} 分钟。`);
+  }
+else if (data === "toggle_night_mode") {
+    let newState = !getNightModeEnabled();
+    setNightModeEnabled(newState);
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `夜间模式已${newState ? "启用" : "关闭"}，时间段 ${getNightModeStart()} - ${getNightModeEnd()}，时区 UTC${getNightModeOffset() >= 0 ? "+" : ""}${getNightModeOffset()}`);
+  }
+  else if (data === "toggle_delete_inactive") {
+    let newState = !getDeleteInactiveEnabled();
+    setDeleteInactiveEnabled(newState);
+    setupInactiveUserTrigger();
+    editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+    sendMessage(chatId, `删除已销号用户功能已${newState ? "开启" : "关闭"}，每天检查一次。`);
+  }
+  else if (data === "add_reply") {
+    let cache = CacheService.getScriptCache();
+    clearUserOperations(senderId);
+    cache.put("ADD_reply_" + senderId, JSON.stringify({ step: "keyword" }), 300);
+    sendMessage(chatId, "请发送你要添加的关键词：");
+  }
+  else {
+    const customReplies = getCustomReplies();
+    if (customReplies[data]) sendCustomReply(chatId, customReplies[data]);
+    else sendMessage(chatId, "未找到自定义回复: " + data);
+  }
+}
+
+function cycleMuteDuration(chatId, messageId) {
+  const durations = [3600, 21600, 86400];
+  let current = getMuteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 0;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setMuteDuration(newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleWarningLimit(chatId, messageId) {
+  const limits = [1, 2, 3, 5];
+  let current = getWarningLimit();
+  let idx = limits.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newLimit = limits[(idx + 1) % limits.length];
+  setWarningLimit(newLimit);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cyclePunishmentAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getPunishmentAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setPunishmentAutoDeleteDuration(newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function cycleEventAutoDelete(chatId, messageId) {
+  const durations = [0, 5, 10, 20, 30];
+  let current = getEventAutoDeleteDuration();
+  let idx = durations.indexOf(current);
+  if (idx === -1) idx = 2;
+  let newDuration = durations[(idx + 1) % durations.length];
+  setEventAutoDeleteDuration(newDuration);
+  editMessage(chatId, messageId, "⚙️ 设置面板：", { reply_markup: buildSettingsMarkup() });
+}
+
+function formatDuration(seconds) {
+  return (seconds / 3600) + "小时";
+}
+
+// ========== 管理员检查 ==========
+function isAdmin(chatId, userId) {
+  if (chatId > 0) return true;
+  let cache = CacheService.getScriptCache();
+  let key = `ADMIN_${chatId}_${userId}`;
+  let cached = cache.get(key);
+  if (cached !== null) return cached === "true";
+  try {
+    let response = UrlFetchApp.fetch(`${BASE_URL}getChatMember?chat_id=${chatId}&user_id=${userId}`);
+    let data = JSON.parse(response.getContentText());
+    let isAdmin = data.ok && (data.result.status === "creator" || data.result.status === "administrator");
+    cache.put(key, isAdmin.toString(), 3600);
+    return isAdmin;
+  } catch (error) {
+    Logger.log("isAdmin 检查错误: " + error.toString());
+    return false;
+  }
+}
+
+// ========== 消息发送与编辑 ==========
+function sendRequest(method, payload) {
+  try {
+    let response = UrlFetchApp.fetch(`${BASE_URL}${method}`, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    let result = JSON.parse(response.getContentText());
+    if (!result.ok) {
+      Logger.log(`Error in ${method}: ${result.description}`);
+      return null;
+    }
+    return result;
+  } catch (err) {
+    Logger.log(`Exception in ${method}: ${err.toString()}`);
+    return null;
+  }
+}
+
+function sendMessage(chatId, text, options = {}) {
+  return sendRequest("sendMessage", { chat_id: chatId, text: text, ...options });
+}
+
+function sendPhoto(chatId, photoUrl, options = {}) {
+  return sendRequest("sendPhoto", { chat_id: chatId, photo: photoUrl, ...options });
+}
+
+function sendVideo(chatId, videoUrl, options = {}) {
+  return sendRequest("sendVideo", { chat_id: chatId, video: videoUrl, ...options });
+}
+
+function sendAudio(chatId, audioUrl, options = {}) {
+  return sendRequest("sendAudio", { chat_id: chatId, audio: audioUrl, ...options });
+}
+
+function sendDocument(chatId, documentUrl, options = {}) {
+  return sendRequest("sendDocument", { chat_id: chatId, document: documentUrl, ...options });
+}
+
+function editMessage(chatId, messageId, text, options = {}) {
+  sendRequest("editMessageText", { chat_id: chatId, message_id: messageId, text: text, ...options });
+}
+
+// ========== Webhook 设置 ==========
+function setWebhook() {
+  const url = `${BASE_URL}setWebhook`;
+  const params = { url: SCRIPT_URL, allowed_updates: JSON.stringify(["message", "chat_member", "callback_query"]) };
+  const options = { method: "post", payload: params, muteHttpExceptions: true };
+  const response = UrlFetchApp.fetch(url, options);
+  const result = JSON.parse(response.getContentText());
+  if (result.ok) Logger.log("Webhook 设置成功");
+  else Logger.log("Webhook 设置失败: " + result.description);
+}
+
+// ========== 设置触发器 ==========
+function setupTriggers() {
+  setupVerificationTrigger();
+  setupPinAutoDeleteTrigger();
+  setupScheduledTaskTrigger();
+  setupInactiveUserTrigger();
+  setupDeletionTrigger();
+}
+
+function setupVerificationTrigger() {
+  deleteTriggers("checkUnverifiedUsers");
+  try {
+    ScriptApp.newTrigger("checkUnverifiedUsers")
+      .timeBased()
+      .everyMinutes(1)
+      .create();
+    Logger.log("未验证用户检查触发器已设置为每分钟运行");
+  } catch (err) {
+    Logger.log(`设置未验证用户检查触发器失败: ${err.toString()}`);
+  }
+}
+
+function initialize() {
+  setWebhook();
+  setupTriggers();
+}
