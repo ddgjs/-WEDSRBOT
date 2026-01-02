@@ -1,0 +1,450 @@
+// ==================== 你的 Telegram Bot Token ====================
+const TELEGRAM_TOKEN = '7227202194:AAHc4KVO5CM0rdX1ghbnyaQro';
+
+// ==================== 本机器人的 User ID（必须填写）===================
+const MY_BOT_ID = 1234567890;  // ←←← 修改为你的机器人实际 ID（@userinfobot 获取）
+
+// ==================== 本群允许的机器人 ID 白名单 ====================
+const ALLOWED_BOT_IDS = [
+  1234567890,     // 你的管理 Bot（必填）
+  777000,         // Telegram 官方服务消息（建议加）
+  // 如有其他合法 Bot，加在这里
+];
+
+// ==================== 机器人主人 ID 列表（支持多个）===================
+const BOT_OWNER_IDS = [123456789, 987654321];  // ←←← 修改为你们的主人 ID
+
+// ==================== 超长名字阈值（自定义）===================
+const MAX_NAME_LENGTH = 50;  // ←←← 如果名字（first_name + last_name）超过50字符，视为垃圾名字
+
+// ==================== 违禁词存储 ====================
+const PROP_BANNED_WORDS = 'BANNED_WORDS';
+const PROP_USER_NAMES = 'USER_NAMES';
+
+const DEFAULT_BANNED_WORDS = [
+  /TRX秒转/i,
+  /实时海选/i,
+  /叚钞/i,
+  /兼职/i,
+  /城资源/i,
+  /日赚/i,
+  /秒结/i,
+  /免手续/i,
+  /低价出/i,
+  /USDT/i,
+  /收卡/i,
+  /代付/i,
+  /跑分/i
+];
+
+// ==================== 初始化 ====================
+function initBannedWords() {
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty(PROP_BANNED_WORDS)) {
+    const list = DEFAULT_BANNED_WORDS.map(r => '/' + r.source + '/' + (r.flags || 'i'));
+    props.setProperty(PROP_BANNED_WORDS, JSON.stringify(list));
+  }
+  if (!props.getProperty(PROP_USER_NAMES)) {
+    props.setProperty(PROP_USER_NAMES, JSON.stringify({}));
+  }
+}
+
+function getBannedWords() {
+  const props = PropertiesService.getScriptProperties();
+  let list = [];
+  const stored = props.getProperty(PROP_BANNED_WORDS);
+  if (stored) {
+    list = JSON.parse(stored);
+  } else {
+    list = DEFAULT_BANNED_WORDS.map(r => '/' + r.source + '/' + (r.flags || 'i'));
+    props.setProperty(PROP_BANNED_WORDS, JSON.stringify(list));
+  }
+
+  return list.map(str => {
+    const match = str.match(/^\/(.*)\/(.*)$/);
+    return new RegExp(match[1], match[2] || 'i');
+  });
+}
+
+function addBannedWord(word) {
+  if (!word || !word.trim()) return false;
+  word = word.trim();
+
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty(PROP_BANNED_WORDS);
+  let list = stored ? JSON.parse(stored) : [];
+
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regexStr = '/' + escaped + '/i';
+
+  if (!list.includes(regexStr)) {
+    list.push(regexStr);
+    props.setProperty(PROP_BANNED_WORDS, JSON.stringify(list));
+    return true;
+  }
+  return false;
+}
+
+function removeBannedWord(index) {
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty(PROP_BANNED_WORDS);
+  if (!stored) return false;
+
+  let list = JSON.parse(stored);
+  if (index >= 0 && index < list.length) {
+    list.splice(index, 1);
+    props.setProperty(PROP_BANNED_WORDS, JSON.stringify(list));
+    return true;
+  }
+  return false;
+}
+
+// ==================== 用户昵称管理 ====================
+function getUserNames(chatId) {
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty(PROP_USER_NAMES);
+  const allNames = stored ? JSON.parse(stored) : {};
+  return allNames[chatId] || {};
+}
+
+function updateUserName(chatId, userId, newName) {
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty(PROP_USER_NAMES);
+  let allNames = stored ? JSON.parse(stored) : {};
+
+  if (!allNames[chatId]) allNames[chatId] = {};
+
+  const oldName = allNames[chatId][userId] || '未知';
+  allNames[chatId][userId] = newName;
+
+  props.setProperty(PROP_USER_NAMES, JSON.stringify(allNames));
+
+  return oldName;
+}
+
+// ==================== Webhook 设置 ====================
+function setWebhook() {
+  initBannedWords();
+  const url = 'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/setWebhook?url=' +
+              'https://script.google.com/macros/s/AKfycbwRhSWQ8JxrMnpunuKCaydU_kuRfTHqEre5_xcIK35CaHArWBYotmbzPGBddbOHryr71A/exec';
+  const res = UrlFetchApp.fetch(url);
+  Logger.log(res.getContentText());
+}
+
+// ==================== 获取管理员 ====================
+function getAdmins(chatId) {
+  const url = 'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/getChatAdministrators?chat_id=' + chatId;
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  const data = JSON.parse(res.getContentText());
+  return data.ok ? data.result.map(a => a.user.id) : [];
+}
+
+// ==================== 永久封锁用户 ====================
+function banUser(chatId, userId) {
+  const url = 'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/banChatMember';
+  const payload = {
+    chat_id: chatId,
+    user_id: userId,
+    until_date: 0  // 0 表示永久封锁
+  };
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  UrlFetchApp.fetch(url, options);
+}
+
+// ==================== 主处理函数 ====================
+function doPost(e) {
+  try {
+    initBannedWords();
+
+    const update = JSON.parse(e.postData.contents);
+    const message = update.message || update.edited_message;
+    const callback = update.callback_query;
+
+    let chatId, userId, text = '', messageId;
+
+    if (callback) {
+      chatId = callback.message.chat.id;
+      userId = callback.from.id;
+      messageId = callback.message.message_id;
+
+      if (!BOT_OWNER_IDS.includes(userId)) {
+        answerCallback(callback.id, '❌ 无权限操作');
+        return;
+      }
+
+      const data = callback.data;
+      if (data === 'main_panel') editToMainPanel(chatId, messageId);
+      else if (data === 'list_banned') editToBannedList(chatId, messageId);
+      else if (data === 'add_banned') {
+        sendAddPrompt(chatId);
+        answerCallback(callback.id, '请回复本消息输入违禁词');
+      } else if (data.startsWith('del_')) {
+        const idx = parseInt(data.slice(4));
+        if (removeBannedWord(idx)) {
+          editToBannedList(chatId, messageId);
+          answerCallback(callback.id, '✅ 已删除');
+        } else {
+          answerCallback(callback.id, '❌ 删除失败');
+        }
+      }
+      answerCallback(callback.id, '');
+      return;
+    }
+
+    if (message) {
+      chatId = message.chat.id;
+      userId = message.from.id;
+      text = (message.text || '').trim();
+      messageId = message.message_id;
+    } else {
+      return;
+    }
+
+    // 私聊 /settings
+    if (chatId > 0 && text === '/settings') {
+      if (BOT_OWNER_IDS.includes(userId)) {
+        sendMainPanel(chatId);
+      } else {
+        sendMessage(chatId, '❌ 仅机器人主人可使用此命令');
+      }
+      return;
+    }
+
+    // 主人添加违禁词
+    if (chatId > 0 && BOT_OWNER_IDS.includes(userId) && message.reply_to_message &&
+        message.reply_to_message.from && message.reply_to_message.from.is_bot &&
+        (message.reply_to_message.text || '').includes('请回复我输入你要添加的违禁词')) {
+
+      if (addBannedWord(text)) {
+        sendMessage(chatId, `✅ 添加成功！\n违禁词：<code>${escapeHtml(text)}</code>`);
+      } else {
+        sendMessage(chatId, '⚠️ 该词已存在，未重复添加');
+      }
+      return;
+    }
+
+    // ==================== 群聊管理逻辑 ====================
+    if (chatId < 0) {
+
+      // 外部机器人消息
+      if (message.from && message.from.is_bot) {
+        if (!ALLOWED_BOT_IDS.includes(userId)) {
+          sendMessageWithAutoDelete(chatId, '🚫 检测到外部机器人消息，已自动删除，保持群聊干净', 5000);
+          deleteMessage(chatId, messageId);
+          return;
+        }
+        if (userId === MY_BOT_ID) {
+          deleteMessage(chatId, messageId);
+          return;
+        }
+      }
+
+      // ============ 新增：处理新成员加入，检查超长垃圾名字 ============
+      if (message.new_chat_members) {
+        deleteMessage(chatId, messageId);  // 先删除系统加入消息（无痕）
+        message.new_chat_members.forEach(member => {
+          if (member.is_bot) {
+            // 机器人加入：如果不在白名单，封锁并提示
+            if (!ALLOWED_BOT_IDS.includes(member.id)) {
+              banUser(chatId, member.id);
+              sendMessageWithAutoDelete(chatId, `🚫 检测到外部垃圾机器人 ${escapeHtml(member.first_name)} 加入，已永久封锁`, 3000);
+            }
+            return;
+          }
+
+          // 人类用户：检查名字长度
+          const fullName = (member.first_name || '') + (member.last_name ? ' ' + member.last_name : '');
+          if (fullName.length > MAX_NAME_LENGTH) {
+            banUser(chatId, member.id);
+            sendMessageWithAutoDelete(chatId, `🚫 检测到超长垃圾名字用户 ${escapeHtml(fullName)} 加入，已永久封锁`, 3000);
+          } else {
+            // 正常用户，记录名字
+            updateUserName(chatId, member.id, fullName);
+          }
+        });
+        return;
+      }
+
+      // 离开群无痕
+      if (message.left_chat_member) {
+        deleteMessage(chatId, messageId);
+        return;
+      }
+
+      const admins = getAdmins(chatId);
+      if (admins.includes(userId)) {
+        checkAndNotifyNameChange(chatId, userId, message.from);
+        return;
+      }
+
+      checkAndNotifyNameChange(chatId, userId, message.from);
+
+      const content = (message.text || message.caption || '').toString();
+      const banned = getBannedWords();
+
+      if (content && banned.some(r => r.test(content))) {
+        sendMessage(chatId, '🚫 检测到违禁内容，已删除消息');
+        deleteMessage(chatId, messageId);
+        return;
+      }
+
+      if (message.sticker || message.animation || message.video_note) {
+        sendMessage(chatId, '🚫 禁止发送表情包、GIF 或圆视频，已删除');
+        deleteMessage(chatId, messageId);
+        return;
+      }
+
+      // 禁止引用外部来源
+      if (message.reply_to_message) {
+        const replied = message.reply_to_message;
+        const repliedChatId = replied.chat?.id || null;
+        if (
+          repliedChatId !== chatId ||
+          replied.forward_from || replied.forward_from_chat ||
+          (replied.from && replied.from.is_bot)
+        ) {
+          sendMessageWithAutoDelete(chatId, '🚫 禁止引用外部频道、群组或机器人消息，已删除', 5000);
+          deleteMessage(chatId, messageId);
+          return;
+        }
+      }
+
+      if (
+        message.video || message.photo || message.document ||
+        message.audio || message.voice || message.poll ||
+        content.match(/(https?:\/\/|www\.|t\.me\/|@|\.com|\.cn|\.org|\.net)/i) ||
+        message.forward_from || message.forward_from_chat ||
+        update.edited_message
+      ) {
+        sendMessage(chatId, '🚫 禁止发送此类内容或编辑消息，已删除');
+        deleteMessage(chatId, messageId);
+        return;
+      }
+    }
+
+  } catch (err) {
+    Logger.log('错误: ' + err);
+  }
+}
+
+// ==================== 发送消息并自动删除 ====================
+function sendMessageWithAutoDelete(chatId, text, delayMs = 5000) {
+  const response = sendApi('sendMessage', {
+    chat_id: chatId,
+    text: text,
+    parse_mode: 'HTML'
+  });
+  if (response && response.result && response.result.message_id) {
+    const msgId = response.result.message_id;
+    ScriptApp.newTrigger('delayedDeleteHandler')
+      .timeBased()
+      .after(delayMs)
+      .create();
+    const props = PropertiesService.getScriptProperties();
+    const pending = props.getProperty('PENDING_DELETE') || '';
+    const newPending = pending ? pending + ',' + chatId + ':' + msgId : chatId + ':' + msgId;
+    props.setProperty('PENDING_DELETE', newPending);
+  }
+}
+
+function delayedDeleteHandler() {
+  const props = PropertiesService.getScriptProperties();
+  const pending = props.getProperty('PENDING_DELETE');
+  if (!pending) return;
+
+  const parts = pending.split(',');
+  props.deleteProperty('PENDING_DELETE');
+
+  parts.forEach(pair => {
+    const [cId, mId] = pair.split(':');
+    if (cId && mId) deleteMessage(cId, parseInt(mId));
+  });
+
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    if (t.getHandlerFunction() === 'delayedDeleteHandler') ScriptApp.deleteTrigger(t);
+  });
+}
+
+// ==================== 昵称变更检查 ====================
+function checkAndNotifyNameChange(chatId, userId, user) {
+  const currentName = (user.first_name || '') + (user.last_name ? ' ' + user.last_name : '');
+  if (!currentName) return false;
+
+  const userNames = getUserNames(chatId);
+  const oldName = userNames[userId];
+
+  if (oldName && oldName !== currentName) {
+    sendMessage(chatId, `📝 成员 <b>${escapeHtml(oldName)}</b> 将昵称修改为 <b>${escapeHtml(currentName)}</b>`);
+    updateUserName(chatId, userId, currentName);
+    return true;
+  } else if (!oldName) {
+    updateUserName(chatId, userId, currentName);
+  }
+  return false;
+}
+
+// ==================== 面板函数 ====================
+function sendMainPanel(chatId) {
+  const keyboard = { inline_keyboard: [[{ text: '📋 查看违禁词列表', callback_data: 'list_banned' }], [{ text: '➕ 添加违禁词', callback_data: 'add_banned' }]] };
+  sendApi('sendMessage', { chat_id: chatId, text: '🔧 <b>违禁词管理面板</b>\n\n请选择操作：', parse_mode: 'HTML', reply_markup: JSON.stringify(keyboard) });
+}
+
+function editToMainPanel(chatId, messageId) {
+  const keyboard = { inline_keyboard: [[{ text: '📋 查看违禁词列表', callback_data: 'list_banned' }], [{ text: '➕ 添加违禁词', callback_data: 'add_banned' }]] };
+  editMessage(chatId, messageId, '🔧 <b>违禁词管理面板</b>\n\n请选择操作：', keyboard);
+}
+
+function editToBannedList(chatId, messageId) {
+  const words = getBannedWords();
+  let text = `<b>📋 当前违禁词 (${words.length} 条)</b>\n\n`;
+  if (words.length === 0) text += '（暂无）'; else words.forEach((r, i) => text += `${i + 1}. <code>${escapeHtml(r.source)}</code>\n`);
+
+  const buttons = words.map((_, i) => [{ text: `🗑 删除第 ${i + 1} 条`, callback_data: 'del_' + i }]);
+  buttons.push([{ text: '🔙 返回主面板', callback_data: 'main_panel' }]);
+
+  editMessage(chatId, messageId, text, { inline_keyboard: buttons });
+}
+
+function sendAddPrompt(chatId) {
+  sendApi('sendMessage', { chat_id: chatId, text: '➕ <b>添加违禁词</b>\n\n请回复我输入你要添加的违禁词（自动模糊匹配、不区分大小写）', parse_mode: 'HTML' });
+}
+
+// ==================== API 工具 ====================
+function sendMessage(chatId, text) {
+  return sendApi('sendMessage', { chat_id: chatId, text: text, parse_mode: 'HTML' });
+}
+
+function deleteMessage(chatId, messageId) {
+  sendApi('deleteMessage', { chat_id: chatId, message_id: messageId });
+}
+
+function editMessage(chatId, messageId, text, keyboard) {
+  const payload = { chat_id: chatId, message_id: messageId, text: text, parse_mode: 'HTML', reply_markup: keyboard ? JSON.stringify(keyboard) : undefined };
+  sendApi('editMessageText', payload);
+}
+
+function answerCallback(id, text = '') {
+  sendApi('answerCallbackQuery', { callback_query_id: id, text: text, show_alert: !!text });
+}
+
+function sendApi(method, payload) {
+  const url = 'https://api.telegram.org/bot' + TELEGRAM_TOKEN + '/' + method;
+  const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
+  try {
+    const res = UrlFetchApp.fetch(url, options);
+    return JSON.parse(res.getContentText());
+  } catch (e) {
+    Logger.log('API错误 ' + method + ': ' + e);
+    return null;
+  }
+}
+
+function escapeHtml(t) {
+  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
